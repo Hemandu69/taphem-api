@@ -2,39 +2,47 @@ import { config } from "../../../../config/index.js";
 import { AppError } from "../../../../utils/errors.js";
 
 /**
- * Raw MangaDex API response shapes.
+ * Single Manga item structure inside MangaDex responses.
  */
-export interface MangaDexMangaResponse {
-  result: "ok" | "error";
-  data?: {
-    id: string;
-    type: "manga";
-    attributes: {
-      title: Record<string, string>;
-      altTitles?: Array<Record<string, string>>;
-      description?: Record<string, string>;
-      status?: "ongoing" | "completed" | "hiatus" | "cancelled";
-      year?: number;
-      tags?: Array<{
-        id: string;
-        attributes: {
-          name: Record<string, string>;
-          group: string;
-        };
-      }>;
-    };
-    relationships?: Array<{
+export interface MangaDexMangaItem {
+  id: string;
+  type: "manga";
+  attributes: {
+    title: Record<string, string>;
+    altTitles?: Array<Record<string, string>>;
+    description?: Record<string, string>;
+    status?: "ongoing" | "completed" | "hiatus" | "cancelled";
+    year?: number;
+    tags?: Array<{
       id: string;
-      type: "author" | "artist" | "cover_art";
-      attributes?: {
-        name?: string;
-        fileName?: string;
+      attributes: {
+        name: Record<string, string>;
+        group: string;
       };
     }>;
   };
+  relationships?: Array<{
+    id: string;
+    type: "author" | "artist" | "cover_art";
+    attributes?: {
+      name?: string;
+      fileName?: string;
+    };
+  }>;
+}
+
+/**
+ * Raw MangaDex single manga response shape.
+ */
+export interface MangaDexMangaResponse {
+  result: "ok" | "error";
+  data?: MangaDexMangaItem;
   errors?: Array<{ id: string; status: number; title: string; detail: string }>;
 }
 
+/**
+ * Raw MangaDex chapter feed response shape.
+ */
 export interface MangaDexFeedResponse {
   result: "ok" | "error";
   data?: Array<{
@@ -51,9 +59,26 @@ export interface MangaDexFeedResponse {
   errors?: Array<{ id: string; status: number; title: string; detail: string }>;
 }
 
+/**
+ * Raw MangaDex search response shape.
+ */
+export interface MangaDexSearchResponse {
+  result: "ok" | "error";
+  data?: MangaDexMangaItem[];
+  limit?: number;
+  offset?: number;
+  total?: number;
+  errors?: Array<{ id: string; status: number; title: string; detail: string }>;
+}
+
 export interface MangaDexHttpClient {
   getManga(mangaId: string): Promise<MangaDexMangaResponse | null>;
   getChapterFeed(mangaId: string): Promise<MangaDexFeedResponse>;
+  searchManga(params: {
+    title?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<MangaDexSearchResponse>;
 }
 
 /**
@@ -139,5 +164,31 @@ export class MangaDexClient implements MangaDexHttpClient {
     const endpoint = `/manga/${encodeURIComponent(mangaId)}/feed?translatedLanguage[]=en&order[chapter]=asc&limit=100`;
     const res = await this.request<MangaDexFeedResponse>(endpoint);
     return res || { result: "ok", data: [] };
+  }
+
+  public async searchManga(params: {
+    title?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<MangaDexSearchResponse> {
+    const limit = Math.min(Math.max(params.limit || 20, 1), 100);
+    const offset = Math.max(params.offset || 0, 0);
+
+    const queryParts: string[] = [
+      `limit=${limit}`,
+      `offset=${offset}`,
+      "includes[]=cover_art",
+      "includes[]=author",
+      "includes[]=artist",
+      "order[relevance]=desc"
+    ];
+
+    if (params.title && params.title.trim()) {
+      queryParts.push(`title=${encodeURIComponent(params.title.trim())}`);
+    }
+
+    const endpoint = `/manga?${queryParts.join("&")}`;
+    const res = await this.request<MangaDexSearchResponse>(endpoint);
+    return res || { result: "ok", data: [], limit, offset, total: 0 };
   }
 }

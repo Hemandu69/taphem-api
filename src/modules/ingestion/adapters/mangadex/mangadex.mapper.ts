@@ -1,22 +1,34 @@
-import type { SourceMangaPayload, SourceChapterPayload } from "../../source-adapter.types.js";
+import type {
+  SourceMangaPayload,
+  SourceChapterPayload,
+  SourceSearchResult,
+  SourceMangaSearchItem
+} from "../../source-adapter.types.js";
 import type { MangaStatus } from "../../../manga/manga.types.js";
-import type { MangaDexMangaResponse, MangaDexFeedResponse } from "./mangadex.client.js";
+import type {
+  MangaDexMangaResponse,
+  MangaDexFeedResponse,
+  MangaDexSearchResponse,
+  MangaDexMangaItem
+} from "./mangadex.client.js";
+import { normalizeSlug } from "../../ingestion.normalizer.js";
 
 /**
- * Transforms MangaDex API responses into normalized SourceMangaPayload and SourceChapterPayload objects.
+ * Transforms MangaDex API responses into normalized SourceMangaPayload,
+ * SourceChapterPayload, and SourceSearchResult objects.
  */
 export class MangaDexMapper {
   /**
-   * Maps MangaDex manga response to normalized SourceMangaPayload.
+   * Maps a single MangaDex manga item to normalized SourceMangaPayload.
    */
-  public static mapManga(response: MangaDexMangaResponse): SourceMangaPayload | null {
-    if (!response || response.result !== "ok" || !response.data) {
+  public static mapMangaItem(item: MangaDexMangaItem): SourceMangaPayload | null {
+    if (!item || !item.attributes) {
       return null;
     }
 
-    const { id, attributes, relationships } = response.data;
+    const { id, attributes, relationships } = item;
 
-    // 1. Extract primary title (prioritize English, then any available)
+    // 1. Extract primary title (prioritize English, then romanized Japanese, then first available)
     const title =
       attributes.title?.en ||
       attributes.title?.["ja-ro"] ||
@@ -93,6 +105,7 @@ export class MangaDexMapper {
     return {
       sourceId: id,
       title,
+      slug: normalizeSlug(title),
       alternativeTitles,
       author,
       artist,
@@ -101,6 +114,66 @@ export class MangaDexMapper {
       genres,
       status,
       releaseYear: attributes.year
+    };
+  }
+
+  /**
+   * Maps single MangaDex manga response to normalized SourceMangaPayload.
+   */
+  public static mapManga(response: MangaDexMangaResponse): SourceMangaPayload | null {
+    if (!response || response.result !== "ok" || !response.data) {
+      return null;
+    }
+    return this.mapMangaItem(response.data);
+  }
+
+  /**
+   * Maps MangaDex search response into normalized SourceSearchResult.
+   */
+  public static mapSearch(
+    query: string,
+    response: MangaDexSearchResponse,
+    page = 1,
+    limit = 20
+  ): SourceSearchResult {
+    const rawItems = response?.data || [];
+    const total = typeof response?.total === "number" ? response.total : rawItems.length;
+
+    const items: SourceMangaSearchItem[] = [];
+
+    for (const rawItem of rawItems) {
+      const mapped = this.mapMangaItem(rawItem);
+      if (mapped) {
+        items.push({
+          source: "mangadex",
+          sourceId: mapped.sourceId,
+          slug: mapped.slug || normalizeSlug(mapped.title),
+          title: mapped.title,
+          alternativeTitles: mapped.alternativeTitles,
+          author: mapped.author,
+          artist: mapped.artist,
+          description: mapped.description,
+          coverImage: mapped.coverImage,
+          genres: mapped.genres,
+          status: mapped.status,
+          rating: mapped.rating,
+          releaseYear: mapped.releaseYear
+        });
+      }
+    }
+
+    const hasNextPage = (page - 1) * limit + items.length < total;
+
+    return {
+      source: "mangadex",
+      query,
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasNextPage
+      }
     };
   }
 

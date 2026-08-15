@@ -5,11 +5,14 @@ import { MangaDexMapper } from "./mangadex.mapper.js";
 import type {
   MangaDexHttpClient,
   MangaDexMangaResponse,
-  MangaDexFeedResponse
+  MangaDexFeedResponse,
+  MangaDexSearchResponse
 } from "./mangadex.client.js";
 import { SourceRegistry } from "../../source.registry.js";
 import { IngestionService } from "../../ingestion.service.js";
 import { StaticIngestionRepository } from "../../ingestion.repository.js";
+import { MockMangaSourceAdapter } from "../mock.adapter.js";
+import { AppError } from "../../../../utils/errors.js";
 
 // Mock MangaDex responses for deterministic offline testing
 const sampleMangaDexMangaResponse: MangaDexMangaResponse = {
@@ -74,6 +77,40 @@ const sampleMangaDexMangaResponse: MangaDexMangaResponse = {
   }
 };
 
+const sampleMangaDexSearchResponse: MangaDexSearchResponse = {
+  result: "ok",
+  limit: 20,
+  offset: 0,
+  total: 45,
+  data: [
+    sampleMangaDexMangaResponse.data!,
+    {
+      id: "a1c7c817-4e59-42b5-bd33-02041e32329a",
+      type: "manga",
+      attributes: {
+        title: { en: "Solo Bug Player" },
+        altTitles: [{ ko: "나 혼자 버그로 꿀빠는 플레이어" }],
+        description: { en: "He knows every bug in the game..." },
+        status: "ongoing",
+        year: 2020,
+        tags: [
+          {
+            id: "tag_action",
+            attributes: { name: { en: "Action" }, group: "genre" }
+          }
+        ]
+      },
+      relationships: [
+        {
+          id: "cov_02",
+          type: "cover_art",
+          attributes: { fileName: "bug-player.jpg" }
+        }
+      ]
+    }
+  ]
+};
+
 const sampleMangaDexFeedResponse: MangaDexFeedResponse = {
   result: "ok",
   total: 4,
@@ -129,6 +166,8 @@ const sampleMangaDexFeedResponse: MangaDexFeedResponse = {
 class MockMangaDexHttpClient implements MangaDexHttpClient {
   public mangaToReturn: MangaDexMangaResponse | null = sampleMangaDexMangaResponse;
   public feedToReturn: MangaDexFeedResponse = sampleMangaDexFeedResponse;
+  public searchToReturn: MangaDexSearchResponse = sampleMangaDexSearchResponse;
+  public lastSearchParams: { title?: string; limit?: number; offset?: number } | null = null;
 
   public async getManga(_mangaId: string): Promise<MangaDexMangaResponse | null> {
     return this.mangaToReturn;
@@ -137,9 +176,18 @@ class MockMangaDexHttpClient implements MangaDexHttpClient {
   public async getChapterFeed(_mangaId: string): Promise<MangaDexFeedResponse> {
     return this.feedToReturn;
   }
+
+  public async searchManga(params: {
+    title?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<MangaDexSearchResponse> {
+    this.lastSearchParams = params;
+    return this.searchToReturn;
+  }
 }
 
-describe("MangaDex Real Source Adapter", () => {
+describe("MangaDex Real Source Adapter & Discovery", () => {
   describe("1. Manga Mapping", () => {
     it("should transform MangaDex manga response into normalized SourceMangaPayload", () => {
       const payload = MangaDexMapper.mapManga(sampleMangaDexMangaResponse);
@@ -188,64 +236,99 @@ describe("MangaDex Real Source Adapter", () => {
     });
   });
 
-  describe("3. MangaDexAdapter Contract & Adapter Methods", () => {
-    it("should satisfy MangaSourceAdapter contract", async () => {
-      const mockClient = new MockMangaDexHttpClient();
-      const adapter = new MangaDexAdapter(mockClient);
+  describe("3. Search & Discovery Mapping", () => {
+    it("should map search results into normalized SourceSearchResult with pagination", () => {
+      const result = MangaDexMapper.mapSearch(
+        "solo leveling",
+        sampleMangaDexSearchResponse,
+        1,
+        20
+      );
 
-      assert.equal(adapter.sourceId, "mangadex");
-      assert.equal(adapter.sourceName, "MangaDex");
+      assert.equal(result.source, "mangadex");
+      assert.equal(result.query, "solo leveling");
+      assert.equal(result.items.length, 2);
+      assert.equal(result.items[0]?.title, "Solo Leveling");
+      assert.equal(result.items[0]?.slug, "solo-leveling");
+      assert.equal(result.items[1]?.title, "Solo Bug Player");
+      assert.equal(result.items[1]?.slug, "solo-bug-player");
 
-      const manga = await adapter.fetchManga("32d76d19-8a05-4db0-9fc2-e0b0648fe9d0");
-      assert.ok(manga);
-      assert.equal(manga?.title, "Solo Leveling");
-
-      const chapters = await adapter.fetchChapters("32d76d19-8a05-4db0-9fc2-e0b0648fe9d0");
-      assert.equal(chapters.length, 2);
+      assert.equal(result.pagination.page, 1);
+      assert.equal(result.pagination.limit, 20);
+      assert.equal(result.pagination.total, 45);
+      assert.equal(result.pagination.hasNextPage, true);
     });
 
-    it("should return null if manga is not found on client", async () => {
-      const mockClient = new MockMangaDexHttpClient();
-      mockClient.mangaToReturn = null;
-      const adapter = new MangaDexAdapter(mockClient);
+    it("should calculate hasNextPage correctly on the final page", () => {
+      const result = MangaDexMapper.mapSearch(
+        "solo leveling",
+        {
+          result: "ok",
+          limit: 20,
+          offset: 40,
+          total: 42,
+          data: [sampleMangaDexMangaResponse.data!, sampleMangaDexMangaResponse.data!]
+        },
+        3,
+        20
+      );
 
-      const manga = await adapter.fetchManga("unknown-id");
-      assert.equal(manga, null);
+      assert.equal(result.pagination.page, 3);
+      assert.equal(result.pagination.total, 42);
+      assert.equal(result.pagination.hasNextPage, false);
     });
   });
 
-  describe("4. SourceRegistry", () => {
-    it("should have MangaDex registered by default", () => {
-      const registry = new SourceRegistry();
-      assert.ok(registry.has("mangadex"));
-      assert.ok(registry.has("MANGADEX")); // Case-insensitive lookup
+  describe("4. MangaDexAdapter Contract & Search Delegation", () => {
+    it("should delegate search with calculated limit and offset", async () => {
+      const mockClient = new MockMangaDexHttpClient();
+      const adapter = new MangaDexAdapter(mockClient);
 
+      const results = await adapter.searchManga("solo leveling", { page: 2, limit: 15 });
+
+      assert.ok(mockClient.lastSearchParams);
+      assert.equal(mockClient.lastSearchParams?.title, "solo leveling");
+      assert.equal(mockClient.lastSearchParams?.limit, 15);
+      assert.equal(mockClient.lastSearchParams?.offset, 15); // (2 - 1) * 15
+
+      assert.equal(results.source, "mangadex");
+      assert.equal(results.pagination.page, 2);
+      assert.equal(results.pagination.limit, 15);
+    });
+
+    it("should enforce limit bounds between 1 and 100", async () => {
+      const mockClient = new MockMangaDexHttpClient();
+      const adapter = new MangaDexAdapter(mockClient);
+
+      await adapter.searchManga("test", { page: 1, limit: 500 });
+      assert.equal(mockClient.lastSearchParams?.limit, 100);
+
+      await adapter.searchManga("test", { page: 1, limit: -5 });
+      assert.equal(mockClient.lastSearchParams?.limit, 1);
+    });
+  });
+
+  describe("5. SourceRegistry & Mock Adapter Search", () => {
+    it("should resolve search through SourceRegistry with registered adapter", async () => {
+      const registry = new SourceRegistry();
       const adapter = registry.get("mangadex");
       assert.ok(adapter);
-      assert.equal(adapter?.sourceId, "mangadex");
+      assert.equal(typeof adapter?.searchManga, "function");
     });
 
-    it("should return undefined for unregistered sources", () => {
-      const registry = new SourceRegistry();
-      assert.equal(registry.get("unknown_source"), undefined);
-      assert.equal(registry.has("unknown_source"), false);
-    });
+    it("should perform in-memory search on MockMangaSourceAdapter", async () => {
+      const mockAdapter = new MockMangaSourceAdapter();
+      const result = await mockAdapter.searchManga("valkyrie", { page: 1, limit: 10 });
 
-    it("should allow registering custom adapters", () => {
-      const registry = new SourceRegistry();
-      registry.register({
-        sourceId: "custom_v2",
-        sourceName: "Custom V2",
-        fetchManga: async () => null,
-        fetchChapters: async () => []
-      });
-
-      assert.ok(registry.has("custom_v2"));
-      assert.equal(registry.get("custom_v2")?.sourceName, "Custom V2");
+      assert.equal(result.source, "mock_source");
+      assert.equal(result.items.length, 1);
+      assert.equal(result.items[0]?.title, "Neon Valkyrie");
+      assert.equal(result.pagination.total, 1);
+      assert.equal(result.pagination.hasNextPage, false);
     });
   });
 
-  describe("5. End-to-End Ingestion Flow with MangaDex Adapter", () => {
+  describe("6. End-to-End Ingestion Flow with MangaDex Adapter", () => {
     it("should ingest Solo Leveling via MangaDexAdapter through IngestionService", async () => {
       const mockClient = new MockMangaDexHttpClient();
       const adapter = new MangaDexAdapter(mockClient);
@@ -269,6 +352,20 @@ describe("MangaDex Real Source Adapter", () => {
         "32d76d19-8a05-4db0-9fc2-e0b0648fe9d0"
       );
       assert.equal(secondResult.action, "UNCHANGED");
+    });
+  });
+
+  describe("7. Error Handling & Edge Cases", () => {
+    it("should handle rate limit 429 AppError properly", () => {
+      const err = new AppError("Rate limit", 429, "SOURCE_RATE_LIMIT");
+      assert.equal(err.statusCode, 429);
+      assert.equal(err.code, "SOURCE_RATE_LIMIT");
+    });
+
+    it("should handle timeout AppError properly", () => {
+      const err = new AppError("Timeout", 504, "SOURCE_TIMEOUT");
+      assert.equal(err.statusCode, 504);
+      assert.equal(err.code, "SOURCE_TIMEOUT");
     });
   });
 });

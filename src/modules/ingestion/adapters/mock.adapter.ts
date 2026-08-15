@@ -1,7 +1,10 @@
 import type {
   MangaSourceAdapter,
   SourceMangaPayload,
-  SourceChapterPayload
+  SourceChapterPayload,
+  SourceSearchOptions,
+  SourceSearchResult,
+  SourceMangaSearchItem
 } from "../source-adapter.types.js";
 
 /**
@@ -70,6 +73,57 @@ export class MockMangaSourceAdapter implements MangaSourceAdapter {
   public async fetchChapters(externalId: string): Promise<SourceChapterPayload[]> {
     const chapters = this.chapterStore.get(externalId);
     return chapters ? chapters.map((c) => ({ ...c })) : [];
+  }
+
+  public async searchManga(
+    query: string,
+    options?: SourceSearchOptions
+  ): Promise<SourceSearchResult> {
+    const cleanQuery = (query || "").trim().toLowerCase();
+    const page = Math.max(options?.page || 1, 1);
+    const limit = Math.min(Math.max(options?.limit || 20, 1), 100);
+
+    const matching: SourceMangaSearchItem[] = [];
+    for (const manga of this.mangaStore.values()) {
+      if (
+        !cleanQuery ||
+        manga.title.toLowerCase().includes(cleanQuery) ||
+        (manga.slug && manga.slug.toLowerCase().includes(cleanQuery))
+      ) {
+        matching.push({
+          source: this.sourceId,
+          sourceId: manga.sourceId,
+          slug: manga.slug || "mock-manga",
+          title: manga.title,
+          alternativeTitles: manga.alternativeTitles,
+          author: manga.author,
+          artist: manga.artist,
+          description: manga.description,
+          coverImage: manga.coverImage,
+          genres: manga.genres,
+          status: manga.status,
+          rating: manga.rating,
+          releaseYear: manga.releaseYear
+        });
+      }
+    }
+
+    const offset = (page - 1) * limit;
+    const items = matching.slice(offset, offset + limit);
+    const total = matching.length;
+    const hasNextPage = offset + items.length < total;
+
+    return {
+      source: this.sourceId,
+      query,
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasNextPage
+      }
+    };
   }
 
   public setMockManga(payload: SourceMangaPayload): void {

@@ -1,14 +1,16 @@
 import type {
   MangaSourceAdapter,
   SourceMangaPayload,
-  SourceChapterPayload
+  SourceChapterPayload,
+  SourceSearchOptions,
+  SourceSearchResult
 } from "../../source-adapter.types.js";
 import { MangaDexClient, type MangaDexHttpClient } from "./mangadex.client.js";
 import { MangaDexMapper } from "./mangadex.mapper.js";
 
 /**
  * Real source adapter for MangaDex (https://api.mangadex.org).
- * Fetches and transforms MangaDex manga and chapter metadata into normalized DTOs.
+ * Fetches and transforms MangaDex manga, chapter metadata, and search results into normalized DTOs.
  */
 export class MangaDexAdapter implements MangaSourceAdapter {
   public readonly sourceId = "mangadex";
@@ -37,5 +39,26 @@ export class MangaDexAdapter implements MangaSourceAdapter {
   public async fetchChapters(externalId: string): Promise<SourceChapterPayload[]> {
     const feed = await this.client.getChapterFeed(externalId);
     return MangaDexMapper.mapChapters(externalId, feed);
+  }
+
+  /**
+   * Searches MangaDex catalog by query title with pagination.
+   */
+  public async searchManga(
+    query: string,
+    options?: SourceSearchOptions
+  ): Promise<SourceSearchResult> {
+    const page = Math.max(options?.page || 1, 1);
+    const limit = Math.min(Math.max(options?.limit || 20, 1), 100);
+    const offset =
+      typeof options?.offset === "number" ? options.offset : (page - 1) * limit;
+
+    const rawData = await this.client.searchManga({
+      title: query,
+      limit,
+      offset
+    });
+
+    return MangaDexMapper.mapSearch(query, rawData, page, limit);
   }
 }

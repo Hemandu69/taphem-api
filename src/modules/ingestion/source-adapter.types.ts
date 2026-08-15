@@ -39,6 +39,54 @@ export interface SourceChapterPayload {
 }
 
 /**
+ * Options passed to source search queries.
+ */
+export interface SourceSearchOptions {
+  page?: number;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Single normalized item returned in external source search results.
+ */
+export interface SourceMangaSearchItem {
+  source: string;
+  sourceId: string;
+  slug: string;
+  title: string;
+  alternativeTitles?: string[];
+  author?: string;
+  artist?: string;
+  description?: string;
+  coverImage?: string;
+  genres?: string[];
+  status?: MangaStatus;
+  rating?: number;
+  releaseYear?: number;
+}
+
+/**
+ * Pagination metadata for search results.
+ */
+export interface SourceSearchPagination {
+  page: number;
+  limit: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+/**
+ * Source-agnostic paginated search results structure.
+ */
+export interface SourceSearchResult {
+  source: string;
+  query: string;
+  items: SourceMangaSearchItem[];
+  pagination: SourceSearchPagination;
+}
+
+/**
  * Contract implemented by all external source adapters.
  * Designed so new source providers can be plugged in without changing the core ingestion pipeline.
  */
@@ -55,4 +103,12 @@ export interface MangaSourceAdapter {
    * Fetches chapter metadata list for a given external manga identifier.
    */
   fetchChapters(externalId: string): Promise<SourceChapterPayload[]>;
+
+  /**
+   * Optional search capability across the external source catalog.
+   */
+  searchManga?(
+    query: string,
+    options?: SourceSearchOptions
+  ): Promise<SourceSearchResult>;
 }

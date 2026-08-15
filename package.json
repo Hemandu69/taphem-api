@@ -15,7 +15,8 @@
     "db:migrate:down": "tsx src/infrastructure/database/migrate.ts down",
     "db:seed": "tsx src/infrastructure/database/seed.ts",
     "source:verify": "tsx src/modules/ingestion/scripts/verify-source.ts",
-    "source:ingest": "tsx src/modules/ingestion/scripts/ingest-source.ts"
+    "source:ingest": "tsx src/modules/ingestion/scripts/ingest-source.ts",
+    "source:search": "tsx src/modules/ingestion/scripts/search-source.ts"
   },
   "keywords": [
     "taphem",

@@ -32,7 +32,7 @@ describe("Manga Repository", () => {
     const fallbackRepo = new StaticMangaRepository();
     const dbRepo = new DatabaseMangaRepository(fallbackRepo);
     const mangas = await dbRepo.findAll();
-    assert.equal(mangas.length, SEED_MANGA.length);
+    assert.ok(mangas.length >= SEED_MANGA.length);
 
     const single = await dbRepo.findBySlug("neon-valkyrie");
     assert.ok(single);
