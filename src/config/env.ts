@@ -38,7 +38,22 @@ const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .default("")
-    .transform((val) => val.trim())
+    .transform((val) => val.trim()),
+  MANGADEX_API_BASE_URL: z
+    .string()
+    .default("https://api.mangadex.org")
+    .transform((val) => val.trim().replace(/\/+$/, "")),
+  MANGADEX_REQUEST_TIMEOUT_MS: z
+    .string()
+    .default("10000")
+    .transform((val) => parseInt(val, 10))
+    .pipe(
+      z
+        .number()
+        .int()
+        .min(500, "MANGADEX_REQUEST_TIMEOUT_MS must be at least 500ms")
+        .max(60000, "MANGADEX_REQUEST_TIMEOUT_MS cannot exceed 60000ms")
+    )
 });
 
 /**
@@ -55,6 +70,8 @@ export function validateEnv() {
       corsOrigins: env.CORS_ORIGINS,
       mangaCdnBaseUrl: env.MANGA_CDN_BASE_URL,
       databaseUrl: env.DATABASE_URL,
+      mangadexApiBaseUrl: env.MANGADEX_API_BASE_URL,
+      mangadexRequestTimeoutMs: env.MANGADEX_REQUEST_TIMEOUT_MS,
       isProduction: env.NODE_ENV === "production",
       isDevelopment: env.NODE_ENV === "development",
       isTest: env.NODE_ENV === "test"
