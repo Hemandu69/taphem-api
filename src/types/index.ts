@@ -23,9 +23,17 @@ export interface ApiErrorResponse {
   error: ApiErrorDetail;
 }
 
-// Domain Model Types
+// Domain Model Types: Manga
 export type {
   Manga,
   MangaStatus,
   MangaRepository
 } from "../modules/manga/manga.types.js";
+
+// Domain Model Types: Chapter
+export type {
+  Chapter,
+  ChapterPage,
+  ChapterSummary,
+  ChapterRepository
+} from "../modules/chapter/chapter.types.js";

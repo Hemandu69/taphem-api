@@ -222,6 +222,76 @@ npm run start
 }
 ```
 
+### Manga Chapters
+
+> **Note on Storage**: The Chapter module implements the `ChapterRepository` interface with `StaticChapterRepository`. Chapters provide ordered manga page image URLs in a CDN/storage agnostic structure ready for frontend readers.
+
+#### 1. Get Chapters List for a Manga
+
+- **Method**: `GET`
+- **Path**: `/api/v1/manga/:slug/chapters`
+- **Example**: `GET /api/v1/manga/neon-valkyrie/chapters`
+- **Response**: `200 OK`
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "chap_nv_01_98a7b6c5d4e3f2",
+      "mangaSlug": "neon-valkyrie",
+      "chapterNumber": 1,
+      "title": "Awakening in Neo-Kyoto",
+      "pageCount": 8,
+      "createdAt": "2024-01-15T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+#### 2. Get Complete Chapter with Pages
+
+- **Method**: `GET`
+- **Path**: `/api/v1/manga/:slug/chapters/:chapterNumber`
+- **Example**: `GET /api/v1/manga/neon-valkyrie/chapters/1`
+- **Response**: `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "chap_nv_01_98a7b6c5d4e3f2",
+    "mangaSlug": "neon-valkyrie",
+    "chapterNumber": 1,
+    "title": "Awakening in Neo-Kyoto",
+    "pageCount": 8,
+    "createdAt": "2024-01-15T00:00:00.000Z",
+    "pages": [
+      {
+        "pageNumber": 1,
+        "imageUrl": "https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=1200&q=80"
+      },
+      {
+        "pageNumber": 2,
+        "imageUrl": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1200&q=80"
+      }
+    ]
+  }
+}
+```
+
+- **Not Found (404)**:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "CHAPTER_NOT_FOUND",
+    "message": "Chapter 999 for manga 'neon-valkyrie' was not found"
+  }
+}
+```
+
 ### Error Response Convention
 
 All errors (including 404 Not Found, 400 Bad Request, malformed JSON, and 500 Internal Server Errors) adhere to a consistent structure:
