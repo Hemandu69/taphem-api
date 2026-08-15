@@ -22,8 +22,7 @@ export class ChapterService {
   ) {}
 
   /**
-   * Retrieves chapter summaries for a given manga slug.
-   * Validates that the manga exists before returning chapters.
+   * Retrieves chapter summaries for a given manga slug after validating manga existence.
    */
   public async getChaptersByMangaSlug(slug: string): Promise<ChapterSummary[]> {
     const trimmedSlug = slug?.trim();
@@ -31,19 +30,16 @@ export class ChapterService {
       throw AppError.badRequest("Manga slug parameter is required", "INVALID_SLUG");
     }
 
-    // 1. Verify manga exists in the catalog
     const manga = await this.mangaRepo.findBySlug(trimmedSlug);
     if (!manga) {
       throw AppError.notFound(`Manga '${trimmedSlug}' was not found`, "MANGA_NOT_FOUND");
     }
 
-    // 2. Retrieve chapter summaries
     return this.chapterRepo.findByMangaSlug(trimmedSlug);
   }
 
   /**
    * Retrieves a full chapter with ordered pages for a given manga slug and chapter number.
-   * Validates manga existence, chapter number format, and chapter existence.
    */
   public async getChapterByNumber(
     slug: string,
@@ -54,26 +50,13 @@ export class ChapterService {
       throw AppError.badRequest("Manga slug parameter is required", "INVALID_SLUG");
     }
 
-    // 1. Validate chapter number is a valid positive integer
-    const parsedNumber = Number(chapterNumberParam);
-    if (
-      isNaN(parsedNumber) ||
-      !Number.isInteger(parsedNumber) ||
-      parsedNumber <= 0
-    ) {
-      throw AppError.badRequest(
-        `Invalid chapter number '${chapterNumberParam}'. Chapter number must be a positive integer.`,
-        "INVALID_CHAPTER_NUMBER"
-      );
-    }
+    const parsedNumber = this.parsePositiveInteger(chapterNumberParam, "INVALID_CHAPTER_NUMBER", "chapter number");
 
-    // 2. Verify manga exists in the catalog
     const manga = await this.mangaRepo.findBySlug(trimmedSlug);
     if (!manga) {
       throw AppError.notFound(`Manga '${trimmedSlug}' was not found`, "MANGA_NOT_FOUND");
     }
 
-    // 3. Retrieve specific chapter
     const chapter = await this.chapterRepo.findByMangaSlugAndChapterNumber(
       trimmedSlug,
       parsedNumber
@@ -91,8 +74,7 @@ export class ChapterService {
 
   /**
    * Retrieves a single page binary and MIME type for a chapter.
-   * Validates manga, chapter, and page bounds.
-   * Handles hosted vs external chapters appropriately.
+   * Checks deterministic storage cache first, resolving on-demand from source on cache miss.
    */
   public async getPage(
     slug: string,
@@ -104,38 +86,14 @@ export class ChapterService {
       throw AppError.badRequest("Manga slug parameter is required", "INVALID_SLUG");
     }
 
-    // 1. Validate chapter and page numbers
-    const parsedChapterNumber = Number(chapterNumberParam);
-    if (
-      isNaN(parsedChapterNumber) ||
-      !Number.isInteger(parsedChapterNumber) ||
-      parsedChapterNumber <= 0
-    ) {
-      throw AppError.badRequest(
-        `Invalid chapter number '${chapterNumberParam}'. Chapter number must be a positive integer.`,
-        "INVALID_CHAPTER_NUMBER"
-      );
-    }
+    const parsedChapterNumber = this.parsePositiveInteger(chapterNumberParam, "INVALID_CHAPTER_NUMBER", "chapter number");
+    const parsedPageNumber = this.parsePositiveInteger(pageNumberParam, "INVALID_PAGE_NUMBER", "page number");
 
-    const parsedPageNumber = Number(pageNumberParam);
-    if (
-      isNaN(parsedPageNumber) ||
-      !Number.isInteger(parsedPageNumber) ||
-      parsedPageNumber <= 0
-    ) {
-      throw AppError.badRequest(
-        `Invalid page number '${pageNumberParam}'. Page number must be a positive integer.`,
-        "INVALID_PAGE_NUMBER"
-      );
-    }
-
-    // 2. Verify manga exists
     const manga = await this.mangaRepo.findBySlug(trimmedSlug);
     if (!manga) {
       throw AppError.notFound(`Manga '${trimmedSlug}' was not found`, "MANGA_NOT_FOUND");
     }
 
-    // 3. Verify chapter exists and belongs to manga
     const chapter = await this.chapterRepo.findByMangaSlugAndChapterNumber(
       trimmedSlug,
       parsedChapterNumber
@@ -148,7 +106,7 @@ export class ChapterService {
       );
     }
 
-    // 4. Handle External and Unavailable chapter states
+    // External chapter delivery is not hosted on Taphem
     if (chapter.chapterType === "external" || chapter.externalUrl) {
       throw AppError.externalChapter(
         "This chapter is available through an external publisher and does not contain hosted page images.",
@@ -156,6 +114,7 @@ export class ChapterService {
       );
     }
 
+    // Explicitly unavailable or zero-page chapters without external URLs
     if (chapter.chapterType === "unavailable" || chapter.pageCount === 0) {
       throw new AppError(
         `Chapter ${parsedChapterNumber} is currently unavailable for online reading.`,
@@ -164,7 +123,6 @@ export class ChapterService {
       );
     }
 
-    // 5. Validate page number boundary
     if (parsedPageNumber > chapter.pageCount) {
       throw AppError.badRequest(
         `Page ${parsedPageNumber} exceeds total chapter page count of ${chapter.pageCount}`,
@@ -172,7 +130,7 @@ export class ChapterService {
       );
     }
 
-    // 6. Check cache in deterministic storage
+    // 1. Cache hit check in deterministic local storage
     const cachedPage = await this.storage.readPage(
       trimmedSlug,
       parsedChapterNumber,
@@ -183,7 +141,7 @@ export class ChapterService {
       return cachedPage;
     }
 
-    // 7. Cache miss: On-demand resolution from source
+    // 2. Cache miss: On-demand resolution from MangaDex @Home
     if (chapter.source === "mangadex" && chapter.sourceId) {
       const atHome = await this.mangadexClient.getAtHomeServer(chapter.sourceId);
       if (!atHome || !atHome.chapter || !Array.isArray(atHome.chapter.data)) {
@@ -227,7 +185,6 @@ export class ChapterService {
         );
       }
 
-      // Persist to storage cache
       await this.storage.writePage(
         trimmedSlug,
         parsedChapterNumber,
@@ -242,7 +199,7 @@ export class ChapterService {
       };
     }
 
-    // 8. Seed / static fallback image resolution
+    // 3. Fallback resolution for seed / static chapter image URLs
     const fallbackPage = chapter.pages.find((p) => p.pageNumber === parsedPageNumber);
     if (fallbackPage && fallbackPage.imageUrl && fallbackPage.imageUrl.startsWith("http")) {
       const controller = new AbortController();
@@ -275,6 +232,17 @@ export class ChapterService {
       `Page ${parsedPageNumber} for chapter ${parsedChapterNumber} could not be resolved`,
       "PAGE_NOT_FOUND"
     );
+  }
+
+  private parsePositiveInteger(value: string | number, errorCode: string, paramName: string): number {
+    const parsed = Number(value);
+    if (isNaN(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+      throw AppError.badRequest(
+        `Invalid ${paramName} '${value}'. Chapter number must be a positive integer.`,
+        errorCode
+      );
+    }
+    return parsed;
   }
 }
 
