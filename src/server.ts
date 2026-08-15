@@ -1,5 +1,6 @@
 import { createApp } from "./app.js";
 import { config } from "./config/index.js";
+import { closePool, isDatabaseConfigured } from "./infrastructure/database/pool.js";
 
 /**
  * Starts the Taphem API HTTP server.
@@ -9,18 +10,24 @@ function startServer(): void {
     const app = createApp();
 
     const server = app.listen(config.port, () => {
+      const dbStatus = isDatabaseConfigured()
+        ? "PostgreSQL (DATABASE_URL configured)"
+        : "In-Memory Static Catalog (fallback mode)";
+
       console.log("==================================================");
       console.log(`Taphem API running in [${config.nodeEnv}] mode`);
+      console.log(`Persistence Layer: ${dbStatus}`);
       console.log(`Server listening on port: ${config.port}`);
       console.log(`Health check: http://localhost:${config.port}/api/v1/health`);
       console.log("==================================================");
     });
 
     // Graceful shutdown
-    const handleShutdown = (signal: string) => {
+    const handleShutdown = async (signal: string) => {
       console.log(`\nReceived ${signal}. Gracefully shutting down Taphem API...`);
-      server.close(() => {
+      server.close(async () => {
         console.log("HTTP server closed.");
+        await closePool();
         process.exit(0);
       });
 
@@ -31,8 +38,8 @@ function startServer(): void {
       }, 10000).unref();
     };
 
-    process.on("SIGTERM", () => handleShutdown("SIGTERM"));
-    process.on("SIGINT", () => handleShutdown("SIGINT"));
+    process.on("SIGTERM", () => void handleShutdown("SIGTERM"));
+    process.on("SIGINT", () => void handleShutdown("SIGINT"));
 
     process.on("uncaughtException", (error: Error) => {
       console.error("Uncaught Exception:", error);

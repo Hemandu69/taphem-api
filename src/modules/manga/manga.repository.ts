@@ -1,9 +1,11 @@
 import type { Manga, MangaRepository } from "./manga.types.js";
 import { SEED_MANGA } from "./data/manga.data.js";
+import { DatabaseMangaRepository } from "./manga.database.repository.js";
+import { isDatabaseConfigured } from "../../infrastructure/database/pool.js";
 
 /**
  * In-memory static implementation of the MangaRepository.
- * Designed to be swapped seamlessly with DatabaseMangaRepository in future iterations.
+ * Useful for standalone testing and fallback operation.
  */
 export class StaticMangaRepository implements MangaRepository {
   private readonly mangaList: Manga[];
@@ -25,4 +27,12 @@ export class StaticMangaRepository implements MangaRepository {
   }
 }
 
-export const mangaRepository = new StaticMangaRepository();
+export { DatabaseMangaRepository };
+
+/**
+ * Default repository instance: uses DatabaseMangaRepository when DATABASE_URL is configured,
+ * falling back to StaticMangaRepository.
+ */
+export const mangaRepository: MangaRepository = isDatabaseConfigured()
+  ? new DatabaseMangaRepository()
+  : new StaticMangaRepository();

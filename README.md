@@ -86,12 +86,55 @@ cp .env.example .env
 | `NODE_ENV` | Application environment (`development`, `production`, `test`) | `development` | `development` |
 | `CORS_ORIGINS` | Comma-separated list of allowed frontend client origins | `""` | `http://localhost:3000,http://localhost:5173` |
 | `MANGA_CDN_BASE_URL` | Public CDN base URL for manga assets | `""` | `https://cdn-beta.example.com` |
+| `DATABASE_URL` | PostgreSQL connection string | `""` | `postgresql://user:pass@localhost:5432/taphem_db` |
 
 > **IMPORTANT**: Never commit `.env` files containing environment-specific values, production endpoints, or credentials into source control.
 
 ---
 
-## 5. Development Mode
+## 5. Database Setup, Migrations & Seeding
+
+The application uses PostgreSQL with a flexible repository layer:
+- When `DATABASE_URL` is set, the API automatically connects to PostgreSQL using connection pooling (`pg.Pool`).
+- When `DATABASE_URL` is omitted (e.g., during lightweight local testing without DB), the API gracefully falls back to the in-memory static catalog.
+
+### Run Database Migrations
+
+Apply database schema migrations (creates `mangas`, `chapters`, and `chapter_pages` tables with indexes and constraints):
+
+```bash
+npm run db:migrate
+```
+
+To roll back migrations:
+
+```bash
+npm run db:migrate:down
+```
+
+### Seed Database
+
+Populate the database with the seed manga catalog and chapter data:
+
+```bash
+npm run db:seed
+```
+
+### Database Schema Overview
+
+```
+mangas
+  ├── id (VARCHAR PK)
+  ├── slug (VARCHAR UNIQUE, indexed)
+  ├── title, alternative_titles, author, artist, description
+  ├── cover_image, genres, status, rating, release_year, chapter_count
+  └── created_at, updated_at
+
+chapters
+  ├── id (VARCHAR PK)
+  ├── manga_id (VARCHAR FK -> mangas.id, indexed)
+  ├── chapter_number (INTEGER)
+  ├─�## 6. Development Mode
 
 Run the server in development mode with automatic restarts on file changes:
 
@@ -101,7 +144,7 @@ npm run dev
 
 ---
 
-## 6. Building for Production
+## 7. Building for Production
 
 Compile TypeScript source files into the `dist/` directory:
 
@@ -121,9 +164,15 @@ To run lint checks:
 npm run lint
 ```
 
+To run unit and integration tests:
+
+```bash
+npm test
+```
+
 ---
 
-## 7. Running in Production
+## 8. Running in Production
 
 After building the application, start the compiled production server:
 
@@ -133,7 +182,7 @@ npm run start
 
 ---
 
-## 8. Current Endpoints
+## 9. Current Endpoints
 
 ### System Health Check
 
@@ -152,7 +201,7 @@ npm run start
 
 ### Manga Catalog
 
-> **Note on Storage**: The Manga module implements a clean Repository pattern (`MangaRepository`). Currently, data is served from a strongly typed in-memory static repository (`StaticMangaRepository`) to provide an immediate API contract for the frontend. It is intentionally designed to be swapped with a database repository (e.g., PostgreSQL/MongoDB) in future iterations without changing controllers, services, or API contracts.
+> **Note on Storage**: The Manga module implements a clean Repository pattern (`MangaRepository`). When `DATABASE_URL` is set, queries run against PostgreSQL (`DatabaseMangaRepository`). When omitted, it gracefully falls back to the in-memory static repository (`StaticMangaRepository`).
 
 #### 1. Get All Manga
 
@@ -225,7 +274,7 @@ npm run start
 
 ### Manga Chapters
 
-> **Note on Storage & CDN**: The Chapter module implements the `ChapterRepository` interface and resolves asset paths via a vendor-agnostic `MangaStorageService` (`StorageService`). When `MANGA_CDN_BASE_URL` is configured, page URLs are deterministically addressed in the format: `${MANGA_CDN_BASE_URL}/manga/${slug}/chapters/${chapterNumber}/${paddedPageNumber}.webp` (e.g., `https://cdn-beta.example.com/manga/neon-valkyrie/chapters/1/003.webp`). If no CDN is configured, it falls back to the in-memory development asset URLs seamlessly.
+> **Note on Storage & CDN**: The Chapter module implements the `ChapterRepository` interface and resolves asset paths via a vendor-agnostic `MangaStorageService` (`StorageService`). When `MANGA_CDN_BASE_URL` is configured, page URLs are deterministically addressed in the format: `${MANGA_CDN_BASE_URL}/manga/${slug}/chapters/${chapterNumber}/${paddedPageNumber}.webp` (e.g., `https://cdn-beta.example.com/manga/neon-valkyrie/chapters/1/003.webp`). If no CDN is configured, it falls back to the stored asset paths seamlessly.
 
 #### 1. Get Chapters List for a Manga
 
@@ -309,7 +358,7 @@ All errors (including 404 Not Found, 400 Bad Request, malformed JSON, and 500 In
 
 ---
 
-## 9. Environment Strategy (Local / Beta / Production)
+## 10. Environment Strategy (Local / Beta / Production)
 
 Taphem operates with separate repositories for frontend and backend:
 
@@ -318,24 +367,24 @@ Taphem Frontend (separate repo)
             ↓ (HTTPS / CORS)
 taphem-api (this repo)
             ↓
-Database / Manga Providers / CDN
+PostgreSQL Database / Manga Providers / CDN
 ```
 
-- **Local**: Development server runs with local ports (e.g. `PORT=4000`, `NODE_ENV=development`) with `CORS_ORIGINS` set to the local frontend development URLs.
-- **Beta / Staging**: Pre-production environment deployed with staging domain origins in `CORS_ORIGINS` and `NODE_ENV=production`.
-- **Production**: Live environment with production domain origins in `CORS_ORIGINS` and `NODE_ENV=production`.
+- **Local**: Development server runs with local ports (e.g. `PORT=4000`, `NODE_ENV=development`) with `CORS_ORIGINS` set to the local frontend development URLs and `DATABASE_URL` set to a local PostgreSQL instance.
+- **Beta / Staging**: Pre-production environment deployed with staging domain origins in `CORS_ORIGINS`, managed PostgreSQL, and `NODE_ENV=production`.
+- **Production**: Live environment with production domain origins in `CORS_ORIGINS`, managed PostgreSQL, and `NODE_ENV=production`.
 
 ---
 
-## 10. Multi-Repo Isolation & Security Rules
+## 11. Multi-Repo Isolation & Security Rules
 
 1. **No Hardcoded URLs**: Frontend URLs, backend URLs, CDN URLs, database strings, and secret keys must **never** be hardcoded in application source code.
-2. **Environment Variable Injection**: All endpoints and access policies must be supplied through validated environment variables (`CORS_ORIGINS`, `PORT`, `NODE_ENV`).
+2. **Environment Variable Injection**: All endpoints and access policies must be supplied through validated environment variables (`CORS_ORIGINS`, `PORT`, `NODE_ENV`, `DATABASE_URL`).
 3. **Multi-Origin CORS**: The backend evaluates `CORS_ORIGINS` dynamically, rejecting unlisted cross-origin requests in production without modifying application code.
 
 ---
 
-## 11. CI/CD & Deployment Architecture
+## 12. CI/CD & Deployment Architecture
 
 ```
 feature branch
@@ -346,6 +395,7 @@ GitHub Actions (CI Quality Gate)
       ├── npm ci
       ├── npm run typecheck
       ├── npm run lint
+      ├── npm test
       └── npm run build
       ↓
     PASS
@@ -355,6 +405,11 @@ Merge to main
 Render (Deployment)
       ├── Build: npm run build
       └── Start: npm start
+```
+
+- **GitHub Actions (`CI`)**: Acts as the automated quality gate. It runs on every push and pull request targeting `main`, executing clean dependency installation (`npm ci`), TypeScript type checking (`npm run typecheck`), ESLint (`npm run lint`), unit/integration tests (`npm test`), and the production build (`npm run build`).
+- **Render (`Deployment`)**: Automatically deploys the backend upon detecting merged commits to `main`. GitHub Actions does not contain deployment logic or tokens.
+rt
 ```
 
 - **GitHub Actions (`CI`)**: Acts as the automated quality gate. It runs on every push and pull request targeting `main`, executing clean dependency installation (`npm ci`), TypeScript type checking (`npm run typecheck`), ESLint (`npm run lint`), and the production build (`npm run build`).

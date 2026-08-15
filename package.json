@@ -10,14 +10,18 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --import tsx --test src/infrastructure/storage/storage.service.test.ts"
+    "test": "tsx --test src/**/*.test.ts",
+    "db:migrate": "tsx src/infrastructure/database/migrate.ts up",
+    "db:migrate:down": "tsx src/infrastructure/database/migrate.ts down",
+    "db:seed": "tsx src/infrastructure/database/seed.ts"
   },
   "keywords": [
     "taphem",
     "api",
     "manga",
     "express",
-    "typescript"
+    "typescript",
+    "postgresql"
   ],
   "author": "",
   "license": "ISC",
@@ -26,6 +30,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
+    "pg": "^8.13.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -33,6 +38,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.13.4",
+    "@types/pg": "^8.11.11",
     "eslint": "^9.20.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",

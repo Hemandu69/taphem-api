@@ -9,11 +9,12 @@ import {
   storageService,
   type MangaStorageService
 } from "../../infrastructure/storage/index.js";
+import { DatabaseChapterRepository } from "./chapter.database.repository.js";
+import { isDatabaseConfigured } from "../../infrastructure/database/pool.js";
 
 /**
  * Static in-memory implementation of the ChapterRepository.
- * Integrates with MangaStorageService to address and resolve page asset URLs deterministically.
- * Designed to be replaced seamlessly by a database/storage repository without modifying services/controllers.
+ * Useful for standalone testing and fallback operation.
  */
 export class StaticChapterRepository implements ChapterRepository {
   private readonly chapters: Chapter[];
@@ -88,4 +89,12 @@ export class StaticChapterRepository implements ChapterRepository {
   }
 }
 
-export const chapterRepository = new StaticChapterRepository();
+export { DatabaseChapterRepository };
+
+/**
+ * Default repository instance: uses DatabaseChapterRepository when DATABASE_URL is configured,
+ * falling back to StaticChapterRepository.
+ */
+export const chapterRepository: ChapterRepository = isDatabaseConfigured()
+  ? new DatabaseChapterRepository()
+  : new StaticChapterRepository();
