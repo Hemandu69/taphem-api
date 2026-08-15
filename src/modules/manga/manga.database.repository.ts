@@ -31,7 +31,7 @@ function mapRowToManga(row: MangaDbRow): Manga {
     artist: row.artist,
     description: row.description,
     coverImage: row.cover_image,
-    genres: row.genres || [],
+    genres: Array.isArray(row.genres) ? row.genres : [],
     status: row.status as MangaStatus,
     rating:
       typeof row.rating === "string" ? parseFloat(row.rating) : Number(row.rating),
@@ -41,7 +41,7 @@ function mapRowToManga(row: MangaDbRow): Manga {
 }
 
 /**
- * PostgreSQL implementation of the MangaRepository.
+ * PostgreSQL implementation of the MangaRepository querying normalized manga & genre tables.
  */
 export class DatabaseMangaRepository implements MangaRepository {
   private readonly fallback: MangaRepository;
@@ -53,21 +53,27 @@ export class DatabaseMangaRepository implements MangaRepository {
   public async findAll(): Promise<Manga[]> {
     const sql = `
       SELECT
-        id,
-        slug,
-        title,
-        alternative_titles,
-        author,
-        artist,
-        description,
-        cover_image,
-        genres,
-        status,
-        rating,
-        release_year,
-        chapter_count
-      FROM mangas
-      ORDER BY title ASC;
+        m.id,
+        m.slug,
+        m.title,
+        m.alternative_titles,
+        m.author,
+        m.artist,
+        m.description,
+        m.cover_image,
+        COALESCE(
+          array_agg(g.name ORDER BY g.name ASC) FILTER (WHERE g.name IS NOT NULL),
+          '{}'
+        ) AS genres,
+        m.status,
+        m.rating,
+        m.release_year,
+        m.chapter_count
+      FROM mangas m
+      LEFT JOIN manga_genres mg ON mg.manga_id = m.id
+      LEFT JOIN genres g ON g.id = mg.genre_id
+      GROUP BY m.id
+      ORDER BY m.title ASC;
     `;
 
     try {
@@ -86,21 +92,27 @@ export class DatabaseMangaRepository implements MangaRepository {
     const normalizedSlug = slug.trim().toLowerCase();
     const sql = `
       SELECT
-        id,
-        slug,
-        title,
-        alternative_titles,
-        author,
-        artist,
-        description,
-        cover_image,
-        genres,
-        status,
-        rating,
-        release_year,
-        chapter_count
-      FROM mangas
-      WHERE LOWER(slug) = $1
+        m.id,
+        m.slug,
+        m.title,
+        m.alternative_titles,
+        m.author,
+        m.artist,
+        m.description,
+        m.cover_image,
+        COALESCE(
+          array_agg(g.name ORDER BY g.name ASC) FILTER (WHERE g.name IS NOT NULL),
+          '{}'
+        ) AS genres,
+        m.status,
+        m.rating,
+        m.release_year,
+        m.chapter_count
+      FROM mangas m
+      LEFT JOIN manga_genres mg ON mg.manga_id = m.id
+      LEFT JOIN genres g ON g.id = mg.genre_id
+      WHERE LOWER(m.slug) = $1
+      GROUP BY m.id
       LIMIT 1;
     `;
 

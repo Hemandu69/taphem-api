@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { StaticChapterRepository } from "./chapter.repository.js";
+import { StaticChapterRepository, DatabaseChapterRepository } from "./chapter.repository.js";
 import { StorageService } from "../../infrastructure/storage/storage.service.js";
 
 describe("Chapter Repository", () => {
@@ -43,5 +43,22 @@ describe("Chapter Repository", () => {
     const repo = new StaticChapterRepository();
     const chapter = await repo.findByMangaSlugAndChapterNumber("neon-valkyrie", 999);
     assert.equal(chapter, null);
+  });
+
+  it("should support fallback operation on DatabaseChapterRepository", async () => {
+    const storage = new StorageService("https://cdn-beta.example.com");
+    const fallback = new StaticChapterRepository(undefined, storage);
+    const dbRepo = new DatabaseChapterRepository(storage, fallback);
+
+    const summaries = await dbRepo.findByMangaSlug("neon-valkyrie");
+    assert.equal(summaries.length, 3);
+
+    const chapter = await dbRepo.findByMangaSlugAndChapterNumber("neon-valkyrie", 1);
+    assert.ok(chapter);
+    assert.equal(chapter?.pages.length, 8);
+    assert.equal(
+      chapter?.pages[0]?.imageUrl,
+      "https://cdn-beta.example.com/manga/neon-valkyrie/chapters/1/001.webp"
+    );
   });
 });

@@ -20,13 +20,10 @@ interface ChapterSummaryDbRow {
   created_at: Date | string;
 }
 
-interface ChapterPageDbRow {
-  page_number: number;
-  image_path: string;
-}
-
 /**
  * PostgreSQL implementation of the ChapterRepository.
+ * Uses deterministic MangaStorageService to construct chapter page assets
+ * directly from page_count, without requiring per-page database rows.
  */
 export class DatabaseChapterRepository implements ChapterRepository {
   private readonly storage: MangaStorageService;
@@ -115,26 +112,21 @@ export class DatabaseChapterRepository implements ChapterRepository {
         return null;
       }
 
-      const pagesSql = `
-        SELECT
-          page_number,
-          image_path
-        FROM chapter_pages
-        WHERE chapter_id = $1
-        ORDER BY page_number ASC;
-      `;
-
-      const pagesResult = await query<ChapterPageDbRow>(pagesSql, [chapterRow.id]);
-
-      const resolvedPages: ChapterPage[] = pagesResult.rows.map((pageRow) => ({
-        pageNumber: pageRow.page_number,
-        imageUrl: this.storage.resolveChapterPageUrl(
-          chapterRow.manga_slug,
-          chapterRow.chapter_number,
-          pageRow.page_number,
-          pageRow.image_path
-        )
-      }));
+      // Generate deterministic pages directly from chapter page_count
+      const resolvedPages: ChapterPage[] = Array.from(
+        { length: chapterRow.page_count },
+        (_, idx) => {
+          const pageNumber = idx + 1;
+          return {
+            pageNumber,
+            imageUrl: this.storage.resolveChapterPageUrl(
+              chapterRow.manga_slug,
+              chapterRow.chapter_number,
+              pageNumber
+            )
+          };
+        }
+      );
 
       return {
         id: chapterRow.id,

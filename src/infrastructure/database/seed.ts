@@ -3,7 +3,18 @@ import { SEED_MANGA } from "../../modules/manga/data/manga.data.js";
 import { SEED_CHAPTERS } from "../../modules/chapter/data/chapter.data.js";
 
 /**
- * Seeds the PostgreSQL database with the existing catalog and chapter datasets.
+ * Helper to convert genre name into a clean, predictable URL slug.
+ */
+function slugifyGenre(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Seeds the PostgreSQL database with the normalized manga, genre, and chapter datasets.
  */
 export async function seedDatabase(): Promise<void> {
   if (!isDatabaseConfigured()) {
@@ -17,54 +28,157 @@ export async function seedDatabase(): Promise<void> {
     console.log("\nStarting database seeding...");
     await client.query("BEGIN");
 
-    // 1. Seed Manga Records
+    // Check if legacy mangas.genres column exists
+    const columnCheck = await client.query(`
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'mangas' AND column_name = 'genres';
+    `);
+    const hasLegacyGenresColumn = columnCheck.rows.length > 0;
+
+    // 1. Seed Manga Metadata Records
     console.log(`Seeding ${SEED_MANGA.length} manga records...`);
     for (const manga of SEED_MANGA) {
-      await client.query(
-        `
-        INSERT INTO mangas (
-          id, slug, title, alternative_titles, author, artist,
-          description, cover_image, genres, status, rating,
-          release_year, chapter_count, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
-        ON CONFLICT (id) DO UPDATE SET
-          slug = EXCLUDED.slug,
-          title = EXCLUDED.title,
-          alternative_titles = EXCLUDED.alternative_titles,
-          author = EXCLUDED.author,
-          artist = EXCLUDED.artist,
-          description = EXCLUDED.description,
-          cover_image = EXCLUDED.cover_image,
-          genres = EXCLUDED.genres,
-          status = EXCLUDED.status,
-          rating = EXCLUDED.rating,
-          release_year = EXCLUDED.release_year,
-          chapter_count = EXCLUDED.chapter_count,
-          updated_at = NOW();
-      `,
-        [
-          manga.id,
-          manga.slug,
-          manga.title,
-          manga.alternativeTitles,
-          manga.author,
-          manga.artist,
-          manga.description,
-          manga.coverImage,
-          manga.genres,
-          manga.status,
-          manga.rating,
-          manga.releaseYear,
-          manga.chapterCount
-        ]
-      );
+      if (hasLegacyGenresColumn) {
+        await client.query(
+          `
+          INSERT INTO mangas (
+            id, slug, title, alternative_titles, author, artist,
+            description, cover_image, genres, status, rating,
+            release_year, chapter_count, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            slug = EXCLUDED.slug,
+            title = EXCLUDED.title,
+            alternative_titles = EXCLUDED.alternative_titles,
+            author = EXCLUDED.author,
+            artist = EXCLUDED.artist,
+            description = EXCLUDED.description,
+            cover_image = EXCLUDED.cover_image,
+            genres = EXCLUDED.genres,
+            status = EXCLUDED.status,
+            rating = EXCLUDED.rating,
+            release_year = EXCLUDED.release_year,
+            chapter_count = EXCLUDED.chapter_count,
+            updated_at = NOW();
+        `,
+          [
+            manga.id,
+            manga.slug,
+            manga.title,
+            manga.alternativeTitles,
+            manga.author,
+            manga.artist,
+            manga.description,
+            manga.coverImage,
+            manga.genres,
+            manga.status,
+            manga.rating,
+            manga.releaseYear,
+            manga.chapterCount
+          ]
+        );
+      } else {
+        await client.query(
+          `
+          INSERT INTO mangas (
+            id, slug, title, alternative_titles, author, artist,
+            description, cover_image, status, rating,
+            release_year, chapter_count, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            slug = EXCLUDED.slug,
+            title = EXCLUDED.title,
+            alternative_titles = EXCLUDED.alternative_titles,
+            author = EXCLUDED.author,
+            artist = EXCLUDED.artist,
+            description = EXCLUDED.description,
+            cover_image = EXCLUDED.cover_image,
+            status = EXCLUDED.status,
+            rating = EXCLUDED.rating,
+            release_year = EXCLUDED.release_year,
+            chapter_count = EXCLUDED.chapter_count,
+            updated_at = NOW();
+        `,
+          [
+            manga.id,
+            manga.slug,
+            manga.title,
+            manga.alternativeTitles,
+            manga.author,
+            manga.artist,
+            manga.description,
+            manga.coverImage,
+            manga.status,
+            manga.rating,
+            manga.releaseYear,
+            manga.chapterCount
+          ]
+        );
+      }
     }
 
-    // 2. Seed Chapters and Chapter Pages
-    console.log(`Seeding ${SEED_CHAPTERS.length} chapter records with pages...`);
+    // 2. Check if normalized genres table exists
+    const genresTableCheck = await client.query(`
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_name = 'genres';
+    `);
+
+    if (genresTableCheck.rows.length > 0) {
+      console.log("Seeding normalized genres and manga_genres relationships...");
+
+      // Collect all distinct genres across all manga
+      const genreMap = new Map<string, string>(); // slug -> name
+      for (const manga of SEED_MANGA) {
+        for (const genreName of manga.genres) {
+          const slug = slugifyGenre(genreName);
+          if (slug && !genreMap.has(slug)) {
+            genreMap.set(slug, genreName.trim());
+          }
+        }
+      }
+
+      // Upsert genres and track their generated IDs
+      const genreIdBySlug = new Map<string, number>();
+      for (const [slug, name] of genreMap.entries()) {
+        const res = await client.query<{ id: number }>(
+          `
+          INSERT INTO genres (slug, name)
+          VALUES ($1, $2)
+          ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+          RETURNING id;
+        `,
+          [slug, name]
+        );
+        if (res.rows[0]) {
+          genreIdBySlug.set(slug, res.rows[0].id);
+        }
+      }
+
+      // Populate manga_genres relations
+      for (const manga of SEED_MANGA) {
+        for (const genreName of manga.genres) {
+          const slug = slugifyGenre(genreName);
+          const genreId = genreIdBySlug.get(slug);
+          if (genreId) {
+            await client.query(
+              `
+              INSERT INTO manga_genres (manga_id, genre_id)
+              VALUES ($1, $2)
+              ON CONFLICT (manga_id, genre_id) DO NOTHING;
+            `,
+              [manga.id, genreId]
+            );
+          }
+        }
+      }
+    }
+
+    // 3. Seed Chapters
+    console.log(`Seeding ${SEED_CHAPTERS.length} chapter records...`);
     for (const chapter of SEED_CHAPTERS) {
-      // Find manga_id for chapter's mangaSlug
-      const mangaRes = await client.query(
+      const mangaRes = await client.query<{ id: string }>(
         "SELECT id FROM mangas WHERE slug = $1",
         [chapter.mangaSlug]
       );
@@ -76,7 +190,9 @@ export async function seedDatabase(): Promise<void> {
         continue;
       }
 
-      const mangaId = mangaRes.rows[0].id;
+      const mangaRow = mangaRes.rows[0];
+      if (!mangaRow) continue;
+      const mangaId = mangaRow.id;
 
       await client.query(
         `
@@ -99,21 +215,6 @@ export async function seedDatabase(): Promise<void> {
           chapter.createdAt || null
         ]
       );
-
-      // Seed pages for this chapter
-      for (const page of chapter.pages) {
-        const pageId = `${chapter.id}_p${page.pageNumber}`;
-        await client.query(
-          `
-          INSERT INTO chapter_pages (
-            id, chapter_id, page_number, image_path, created_at
-          ) VALUES ($1, $2, $3, $4, NOW())
-          ON CONFLICT (id) DO UPDATE SET
-            image_path = EXCLUDED.image_path;
-        `,
-          [pageId, chapter.id, page.pageNumber, page.imageUrl]
-        );
-      }
     }
 
     await client.query("COMMIT");
