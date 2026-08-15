@@ -30,7 +30,11 @@ const envSchema = z.object({
         .split(",")
         .map((origin) => origin.trim())
         .filter((origin) => origin.length > 0)
-    )
+    ),
+  MANGA_CDN_BASE_URL: z
+    .string()
+    .default("")
+    .transform((val) => val.trim().replace(/\/+$/, ""))
 });
 
 /**
@@ -45,6 +49,7 @@ export function validateEnv() {
       nodeEnv: env.NODE_ENV,
       port: env.PORT,
       corsOrigins: env.CORS_ORIGINS,
+      mangaCdnBaseUrl: env.MANGA_CDN_BASE_URL,
       isProduction: env.NODE_ENV === "production",
       isDevelopment: env.NODE_ENV === "development",
       isTest: env.NODE_ENV === "test"

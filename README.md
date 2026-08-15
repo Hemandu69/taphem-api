@@ -85,6 +85,7 @@ cp .env.example .env
 | `PORT` | Port number for the HTTP server | `4000` | `4000` |
 | `NODE_ENV` | Application environment (`development`, `production`, `test`) | `development` | `development` |
 | `CORS_ORIGINS` | Comma-separated list of allowed frontend client origins | `""` | `http://localhost:3000,http://localhost:5173` |
+| `MANGA_CDN_BASE_URL` | Public CDN base URL for manga assets | `""` | `https://cdn-beta.example.com` |
 
 > **IMPORTANT**: Never commit `.env` files containing environment-specific values, production endpoints, or credentials into source control.
 
@@ -224,7 +225,7 @@ npm run start
 
 ### Manga Chapters
 
-> **Note on Storage**: The Chapter module implements the `ChapterRepository` interface with `StaticChapterRepository`. Chapters provide ordered manga page image URLs in a CDN/storage agnostic structure ready for frontend readers.
+> **Note on Storage & CDN**: The Chapter module implements the `ChapterRepository` interface and resolves asset paths via a vendor-agnostic `MangaStorageService` (`StorageService`). When `MANGA_CDN_BASE_URL` is configured, page URLs are deterministically addressed in the format: `${MANGA_CDN_BASE_URL}/manga/${slug}/chapters/${chapterNumber}/${paddedPageNumber}.webp` (e.g., `https://cdn-beta.example.com/manga/neon-valkyrie/chapters/1/003.webp`). If no CDN is configured, it falls back to the in-memory development asset URLs seamlessly.
 
 #### 1. Get Chapters List for a Manga
 

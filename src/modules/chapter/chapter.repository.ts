@@ -1,19 +1,30 @@
 import type {
   Chapter,
+  ChapterPage,
   ChapterRepository,
   ChapterSummary
 } from "./chapter.types.js";
 import { SEED_CHAPTERS } from "./data/chapter.data.js";
+import {
+  storageService,
+  type MangaStorageService
+} from "../../infrastructure/storage/index.js";
 
 /**
  * Static in-memory implementation of the ChapterRepository.
+ * Integrates with MangaStorageService to address and resolve page asset URLs deterministically.
  * Designed to be replaced seamlessly by a database/storage repository without modifying services/controllers.
  */
 export class StaticChapterRepository implements ChapterRepository {
   private readonly chapters: Chapter[];
+  private readonly storage: MangaStorageService;
 
-  constructor(initialData: Chapter[] = SEED_CHAPTERS) {
+  constructor(
+    initialData: Chapter[] = SEED_CHAPTERS,
+    storage: MangaStorageService = storageService
+  ) {
     this.chapters = [...initialData];
+    this.storage = storage;
   }
 
   /**
@@ -37,6 +48,7 @@ export class StaticChapterRepository implements ChapterRepository {
 
   /**
    * Retrieves a full chapter with ordered pages for a given manga slug and chapter number.
+   * Resolves page image URLs using the storage/CDN abstraction.
    */
   public async findByMangaSlugAndChapterNumber(
     mangaSlug: string,
@@ -54,14 +66,24 @@ export class StaticChapterRepository implements ChapterRepository {
       return null;
     }
 
-    // Ensure pages are strictly ordered by pageNumber ascending
+    // Ensure pages are strictly ordered by pageNumber ascending and URLs are resolved via storage abstraction
     const sortedPages = [...chapter.pages].sort(
       (a, b) => a.pageNumber - b.pageNumber
     );
 
+    const resolvedPages: ChapterPage[] = sortedPages.map((page) => ({
+      pageNumber: page.pageNumber,
+      imageUrl: this.storage.resolveChapterPageUrl(
+        chapter.mangaSlug,
+        chapter.chapterNumber,
+        page.pageNumber,
+        page.imageUrl
+      )
+    }));
+
     return {
       ...chapter,
-      pages: sortedPages
+      pages: resolvedPages
     };
   }
 }

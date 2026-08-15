@@ -9,7 +9,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --import tsx --test src/infrastructure/storage/storage.service.test.ts"
   },
   "keywords": [
     "taphem",
