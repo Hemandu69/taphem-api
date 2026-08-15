@@ -42,6 +42,28 @@ export class MangaDexAdapter implements MangaSourceAdapter {
   }
 
   /**
+   * Fetches full manga details and chapters concurrently from MangaDex.
+   */
+  public async fetchMangaDetails(externalId: string): Promise<{
+    manga: SourceMangaPayload;
+    chapters: SourceChapterPayload[];
+  } | null> {
+    const [manga, chapters] = await Promise.all([
+      this.fetchManga(externalId),
+      this.fetchChapters(externalId)
+    ]);
+
+    if (!manga) {
+      return null;
+    }
+
+    return {
+      manga,
+      chapters
+    };
+  }
+
+  /**
    * Searches MangaDex catalog by query title with pagination.
    */
   public async searchManga(

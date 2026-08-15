@@ -185,4 +185,51 @@ describe("Catalog Ingestion Foundation", () => {
       assert.equal(resultB.slug, "beta-odyssey");
     });
   });
+
+  describe("5. Source Manga Details & Ingestion Status", () => {
+    it("should retrieve full source manga details without ingesting (read-only, ingested=false)", async () => {
+      const details = await service.getSourceMangaDetails(mockAdapter, "mock_manga_01");
+
+      assert.equal(details.source, "mock_source");
+      assert.equal(details.sourceId, "mock_manga_01");
+      assert.equal(details.title, "Neon Valkyrie");
+      assert.equal(details.author, "Shinjiro Takahashi");
+      assert.equal(details.chapters.length, 3);
+      assert.equal(details.chapters[0]?.chapterNumber, 1);
+      assert.equal(details.ingested, false);
+      assert.equal(details.mangaId, null);
+      assert.equal(details.mangaSlug, null);
+
+      // Verify no record exists in repository
+      const inRepo = await staticRepo.findMangaBySource("mock_source", "mock_manga_01");
+      assert.equal(inRepo, null);
+    });
+
+    it("should accurately report ingested=true and mangaId after ingestion", async () => {
+      // Ingest first
+      const ingested = await service.ingestFromAdapter(mockAdapter, "mock_manga_01");
+      assert.equal(ingested.action, "CREATED");
+
+      // Query details
+      const details = await service.getSourceMangaDetails(mockAdapter, "mock_manga_01");
+      assert.equal(details.ingested, true);
+      assert.equal(details.mangaId, ingested.mangaId);
+      assert.equal(details.mangaSlug, "neon-valkyrie");
+    });
+
+    it("should throw MANGA_SOURCE_NOT_FOUND when external manga is not found", async () => {
+      await assert.rejects(
+        () => service.getSourceMangaDetails(mockAdapter, "unknown_external_id"),
+        (err: unknown) => err instanceof AppError && err.code === "MANGA_SOURCE_NOT_FOUND"
+      );
+    });
+
+    it("should throw SOURCE_ID_REQUIRED when external ID is empty", async () => {
+      await assert.rejects(
+        () => service.getSourceMangaDetails(mockAdapter, "   "),
+        (err: unknown) => err instanceof AppError && err.code === "SOURCE_ID_REQUIRED"
+      );
+    });
+  });
 });
+

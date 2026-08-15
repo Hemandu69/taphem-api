@@ -41,9 +41,12 @@ export type IngestionAction = "CREATED" | "UPDATED" | "UNCHANGED";
  */
 export interface IngestionResult {
   action: IngestionAction;
+  source: string;
+  sourceId: string;
   mangaId: string;
   slug: string;
   title: string;
   chaptersCount: number;
   genresCount: number;
 }
+

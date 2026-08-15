@@ -1,37 +1,56 @@
 import crypto from "node:crypto";
-import { getClient, isDatabaseConfigured } from "../../infrastructure/database/pool.js";
-import type { IngestMangaInput, IngestChapterInput, IngestionAction } from "./ingestion.types.js";
+import { getClient, query, isDatabaseConfigured } from "../../infrastructure/database/pool.js";
+import type { IngestMangaInput, IngestChapterInput, IngestionAction, IngestionResult } from "./ingestion.types.js";
 import { normalizeGenre } from "./ingestion.normalizer.js";
 
 export interface IngestionRepository {
+  findMangaBySource(
+    source: string,
+    sourceId: string
+  ): Promise<{ id: string; slug: string } | null>;
+
   ingestMangaWithChapters(
     mangaInput: IngestMangaInput & { slug: string },
     chaptersInput: IngestChapterInput[]
-  ): Promise<{
-    action: IngestionAction;
-    mangaId: string;
-    slug: string;
-    title: string;
-    chaptersCount: number;
-    genresCount: number;
-  }>;
+  ): Promise<IngestionResult>;
 }
 
 /**
  * PostgreSQL transactional implementation of IngestionRepository.
  */
 export class DatabaseIngestionRepository implements IngestionRepository {
+  public async findMangaBySource(
+    source: string,
+    sourceId: string
+  ): Promise<{ id: string; slug: string } | null> {
+    const sql = `
+      SELECT id, slug
+      FROM mangas
+      WHERE source = $1 AND source_id = $2
+      LIMIT 1;
+    `;
+    try {
+      const res = await query<{ id: string; slug: string }>(sql, [source, sourceId]);
+      if (res.rows.length === 0 || !res.rows[0]) {
+        return null;
+      }
+      return {
+        id: res.rows[0].id,
+        slug: res.rows[0].slug
+      };
+    } catch (error) {
+      console.warn(
+        "PostgreSQL query failed in findMangaBySource:",
+        error instanceof Error ? error.message : error
+      );
+      return null;
+    }
+  }
+
   public async ingestMangaWithChapters(
     mangaInput: IngestMangaInput & { slug: string },
     chaptersInput: IngestChapterInput[]
-  ): Promise<{
-    action: IngestionAction;
-    mangaId: string;
-    slug: string;
-    title: string;
-    chaptersCount: number;
-    genresCount: number;
-  }> {
+  ): Promise<IngestionResult> {
     const client = await getClient();
 
     try {
@@ -219,6 +238,8 @@ export class DatabaseIngestionRepository implements IngestionRepository {
 
       return {
         action,
+        source: mangaInput.source,
+        sourceId: mangaInput.sourceId,
         mangaId,
         slug: mangaInput.slug,
         title: mangaInput.title,
@@ -241,17 +262,25 @@ export class StaticIngestionRepository implements IngestionRepository {
   private readonly memoryManga = new Map<string, IngestMangaInput & { id: string; slug: string }>();
   private readonly memoryChapters = new Map<string, IngestChapterInput[]>();
 
+  public async findMangaBySource(
+    source: string,
+    sourceId: string
+  ): Promise<{ id: string; slug: string } | null> {
+    const key = `${source}:${sourceId}`;
+    const existing = this.memoryManga.get(key);
+    if (!existing) {
+      return null;
+    }
+    return {
+      id: existing.id,
+      slug: existing.slug
+    };
+  }
+
   public async ingestMangaWithChapters(
     mangaInput: IngestMangaInput & { slug: string },
     chaptersInput: IngestChapterInput[]
-  ): Promise<{
-    action: IngestionAction;
-    mangaId: string;
-    slug: string;
-    title: string;
-    chaptersCount: number;
-    genresCount: number;
-  }> {
+  ): Promise<IngestionResult> {
     const key = `${mangaInput.source}:${mangaInput.sourceId}`;
     const existing = this.memoryManga.get(key) || this.memoryManga.get(mangaInput.slug);
 
@@ -286,6 +315,8 @@ export class StaticIngestionRepository implements IngestionRepository {
 
     return {
       action,
+      source: mangaInput.source,
+      sourceId: mangaInput.sourceId,
       mangaId,
       slug: mangaInput.slug,
       title: mangaInput.title,

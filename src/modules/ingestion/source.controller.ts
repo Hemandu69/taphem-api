@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { AppError } from "../../utils/errors.js";
 import { sendSuccess } from "../../utils/response.js";
 import { sourceRegistry } from "./source.registry.js";
+import { ingestionService } from "./ingestion.service.js";
 
 /**
  * Handles external source catalog search requests.
@@ -77,3 +78,72 @@ export async function searchSourceManga(
     next(error);
   }
 }
+
+/**
+ * Handles external source manga details requests.
+ * GET /api/v1/sources/:sourceId/manga/:externalId
+ * Completely READ-ONLY (zero database mutations).
+ */
+export async function getSourceMangaDetails(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { sourceId, externalId } = req.params;
+    if (!sourceId || !sourceId.trim()) {
+      throw AppError.badRequest("Source identifier is required in route path", "INVALID_SOURCE_ID");
+    }
+    if (!externalId || !externalId.trim()) {
+      throw AppError.badRequest("External manga identifier is required in route path", "SOURCE_ID_REQUIRED");
+    }
+
+    const adapter = sourceRegistry.get(sourceId.trim());
+    if (!adapter) {
+      throw AppError.notFound(
+        `Source '${sourceId}' is not registered or supported`,
+        "UNSUPPORTED_SOURCE"
+      );
+    }
+
+    const result = await ingestionService.getSourceMangaDetails(adapter, externalId.trim());
+    sendSuccess(res, result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Handles explicit ingestion of an external source manga into the Taphem database.
+ * POST /api/v1/sources/:sourceId/manga/:externalId/ingest
+ * Transactional & Idempotent (CREATED / UNCHANGED / UPDATED).
+ */
+export async function ingestSourceManga(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { sourceId, externalId } = req.params;
+    if (!sourceId || !sourceId.trim()) {
+      throw AppError.badRequest("Source identifier is required in route path", "INVALID_SOURCE_ID");
+    }
+    if (!externalId || !externalId.trim()) {
+      throw AppError.badRequest("External manga identifier is required in route path", "SOURCE_ID_REQUIRED");
+    }
+
+    const adapter = sourceRegistry.get(sourceId.trim());
+    if (!adapter) {
+      throw AppError.notFound(
+        `Source '${sourceId}' is not registered or supported`,
+        "UNSUPPORTED_SOURCE"
+      );
+    }
+
+    const result = await ingestionService.ingestFromAdapter(adapter, externalId.trim());
+    sendSuccess(res, result);
+  } catch (error) {
+    next(error);
+  }
+}
+

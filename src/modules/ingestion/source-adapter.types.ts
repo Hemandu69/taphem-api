@@ -87,6 +87,29 @@ export interface SourceSearchResult {
 }
 
 /**
+ * Normalized payload returned when fetching full source manga details.
+ */
+export interface SourceMangaDetailsPayload {
+  source: string;
+  sourceId: string;
+  slug: string;
+  title: string;
+  alternativeTitles?: string[];
+  author?: string;
+  artist?: string;
+  description?: string;
+  coverImage?: string;
+  genres?: string[];
+  status?: MangaStatus;
+  rating?: number | null;
+  releaseYear?: number;
+  chapters: SourceChapterPayload[];
+  ingested: boolean;
+  mangaId: string | null;
+  mangaSlug: string | null;
+}
+
+/**
  * Contract implemented by all external source adapters.
  * Designed so new source providers can be plugged in without changing the core ingestion pipeline.
  */
@@ -105,6 +128,14 @@ export interface MangaSourceAdapter {
   fetchChapters(externalId: string): Promise<SourceChapterPayload[]>;
 
   /**
+   * Optional method to fetch complete manga details and chapters.
+   */
+  fetchMangaDetails?(externalId: string): Promise<{
+    manga: SourceMangaPayload;
+    chapters: SourceChapterPayload[];
+  } | null>;
+
+  /**
    * Optional search capability across the external source catalog.
    */
   searchManga?(
@@ -112,3 +143,4 @@ export interface MangaSourceAdapter {
     options?: SourceSearchOptions
   ): Promise<SourceSearchResult>;
 }
+

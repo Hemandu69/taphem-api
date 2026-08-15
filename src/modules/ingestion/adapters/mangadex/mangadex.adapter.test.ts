@@ -353,6 +353,26 @@ describe("MangaDex Real Source Adapter & Discovery", () => {
       );
       assert.equal(secondResult.action, "UNCHANGED");
     });
+
+    it("should fetch full details and chapters concurrently via fetchMangaDetails", async () => {
+      const mockClient = new MockMangaDexHttpClient();
+      const adapter = new MangaDexAdapter(mockClient);
+
+      const details = await adapter.fetchMangaDetails("32d76d19-8a05-4db0-9fc2-e0b0648fe9d0");
+      assert.ok(details);
+      assert.equal(details?.manga.title, "Solo Leveling");
+      assert.equal(details?.chapters.length, 2);
+      assert.equal(details?.chapters[0]?.chapterNumber, 1);
+    });
+
+    it("should return null from fetchMangaDetails if manga is not found", async () => {
+      const mockClient = new MockMangaDexHttpClient();
+      mockClient.mangaToReturn = null;
+      const adapter = new MangaDexAdapter(mockClient);
+
+      const details = await adapter.fetchMangaDetails("non_existent");
+      assert.equal(details, null);
+    });
   });
 
   describe("7. Error Handling & Edge Cases", () => {
@@ -369,3 +389,4 @@ describe("MangaDex Real Source Adapter & Discovery", () => {
     });
   });
 });
+

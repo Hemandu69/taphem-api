@@ -75,6 +75,21 @@ export class MockMangaSourceAdapter implements MangaSourceAdapter {
     return chapters ? chapters.map((c) => ({ ...c })) : [];
   }
 
+  public async fetchMangaDetails(externalId: string): Promise<{
+    manga: SourceMangaPayload;
+    chapters: SourceChapterPayload[];
+  } | null> {
+    const manga = await this.fetchManga(externalId);
+    if (!manga) {
+      return null;
+    }
+    const chapters = await this.fetchChapters(externalId);
+    return {
+      manga,
+      chapters
+    };
+  }
+
   public async searchManga(
     query: string,
     options?: SourceSearchOptions
