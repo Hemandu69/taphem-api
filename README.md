@@ -149,6 +149,79 @@ npm run start
 }
 ```
 
+### Manga Catalog
+
+> **Note on Storage**: The Manga module implements a clean Repository pattern (`MangaRepository`). Currently, data is served from a strongly typed in-memory static repository (`StaticMangaRepository`) to provide an immediate API contract for the frontend. It is intentionally designed to be swapped with a database repository (e.g., PostgreSQL/MongoDB) in future iterations without changing controllers, services, or API contracts.
+
+#### 1. Get All Manga
+
+- **Method**: `GET`
+- **Path**: `/api/v1/manga`
+- **Response**: `200 OK`
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "manga_01j7x0a1b2c3d4e5f6g7h8j9k0",
+      "slug": "echoes-of-the-abyss",
+      "title": "Echoes of the Abyss",
+      "alternativeTitles": ["Shinsou no Zankyou", "심연의 메아리", "深渊的回响"],
+      "author": "Renjiro Kuroki",
+      "artist": "Aoi Tachibana",
+      "description": "In a world where deep-sea chasms open portals to forgotten dimensions...",
+      "coverImage": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80",
+      "genres": ["Dark Fantasy", "Supernatural", "Mystery", "Adventure"],
+      "status": "ongoing",
+      "rating": 8.9,
+      "releaseYear": 2024,
+      "chapterCount": 48
+    }
+  ]
+}
+```
+
+#### 2. Get Single Manga by Slug
+
+- **Method**: `GET`
+- **Path**: `/api/v1/manga/:slug`
+- **Example**: `GET /api/v1/manga/echoes-of-the-abyss`
+- **Response**: `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "manga_01j7x0a1b2c3d4e5f6g7h8j9k0",
+    "slug": "echoes-of-the-abyss",
+    "title": "Echoes of the Abyss",
+    "alternativeTitles": ["Shinsou no Zankyou", "심연의 메아리", "深渊的回响"],
+    "author": "Renjiro Kuroki",
+    "artist": "Aoi Tachibana",
+    "description": "In a world where deep-sea chasms open portals to forgotten dimensions...",
+    "coverImage": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80",
+    "genres": ["Dark Fantasy", "Supernatural", "Mystery", "Adventure"],
+    "status": "ongoing",
+    "rating": 8.9,
+    "releaseYear": 2024,
+    "chapterCount": 48
+  }
+}
+```
+
+- **Not Found (404)**:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "MANGA_NOT_FOUND",
+    "message": "Manga 'unknown-slug' was not found"
+  }
+}
+```
+
 ### Error Response Convention
 
 All errors (including 404 Not Found, 400 Bad Request, malformed JSON, and 500 Internal Server Errors) adhere to a consistent structure:

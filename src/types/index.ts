@@ -22,3 +22,10 @@ export interface ApiErrorResponse {
   success: false;
   error: ApiErrorDetail;
 }
+
+// Domain Model Types
+export type {
+  Manga,
+  MangaStatus,
+  MangaRepository
+} from "../modules/manga/manga.types.js";
