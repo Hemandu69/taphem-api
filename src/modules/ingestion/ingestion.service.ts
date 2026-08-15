@@ -145,7 +145,9 @@ export class IngestionService {
       mangaSourceId: c.mangaSourceId,
       chapterNumber: c.chapterNumber,
       title: c.title,
-      pageCount: c.pageCount
+      pageCount: c.pageCount,
+      externalUrl: c.externalUrl,
+      chapterType: c.chapterType
     }));
 
     return this.ingestManga(mangaInput, chaptersInput);

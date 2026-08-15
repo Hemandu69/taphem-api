@@ -197,6 +197,34 @@ describe("Catalog Ingestion Foundation", () => {
       );
     });
 
+    it("should preserve externalUrl and chapterType when ingesting via ingestFromAdapter", async () => {
+      mockAdapter.setMockManga({
+        sourceId: "ext_manga_01",
+        title: "External Title",
+        slug: "external-title"
+      });
+      mockAdapter.setMockChapters("ext_manga_01", [
+        {
+          sourceId: "chap_ext_01",
+          mangaSourceId: "ext_manga_01",
+          chapterNumber: 1,
+          title: "Chapter 1",
+          pageCount: 0,
+          externalUrl: "https://example.com/external-ch1",
+          chapterType: "external"
+        }
+      ]);
+
+      const result = await service.ingestFromAdapter(mockAdapter, "ext_manga_01");
+      assert.equal(result.action, "CREATED");
+
+      const chapters = staticRepo.getChapters("external-title");
+      assert.equal(chapters.length, 1);
+      assert.equal(chapters[0]?.pageCount, 0);
+      assert.equal(chapters[0]?.chapterType, "external");
+      assert.equal(chapters[0]?.externalUrl, "https://example.com/external-ch1");
+    });
+
     it("should reject payloads with duplicate chapter numbers", async () => {
       await assert.rejects(
         () =>
