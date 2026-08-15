@@ -25,7 +25,7 @@ export function errorHandler(
 
   // Handle known operational AppErrors
   if (err instanceof AppError) {
-    sendError(res, err.statusCode, err.code, err.message, err.details);
+    sendError(res, err.statusCode, err.code, err.message, err.details, err.externalUrl);
     return;
   }
 

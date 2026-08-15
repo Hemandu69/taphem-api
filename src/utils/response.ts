@@ -20,13 +20,15 @@ export function sendError(
   statusCode: number,
   code: string,
   message: string,
-  details?: unknown
+  details?: unknown,
+  externalUrl?: string
 ): Response {
   const payload: ApiErrorResponse = {
     success: false,
     error: {
       code,
       message,
+      ...(externalUrl ? { externalUrl } : {}),
       ...(details !== undefined ? { details } : {})
     }
   };

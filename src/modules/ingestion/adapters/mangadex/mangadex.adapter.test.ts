@@ -242,6 +242,62 @@ describe("MangaDex Real Source Adapter & Discovery", () => {
       const chapterNumbers = chapters.map((c) => c.chapterNumber);
       assert.deepEqual(chapterNumbers, [1, 2]);
     });
+
+    it("should map external chapters with pages=0 and externalUrl to chapterType='external'", () => {
+      const externalFeed: MangaDexFeedResponse = {
+        result: "ok",
+        data: [
+          {
+            id: "md_ext_01",
+            type: "chapter",
+            attributes: {
+              chapter: "1",
+              title: "External Title",
+              pages: 0,
+              externalUrl: "https://www.webnovel.com/comic/123"
+            }
+          },
+          {
+            id: "md_unavail_02",
+            type: "chapter",
+            attributes: {
+              chapter: "2",
+              title: "Unavailable Title",
+              pages: 0,
+              externalUrl: null
+            }
+          },
+          {
+            id: "md_hosted_03",
+            type: "chapter",
+            attributes: {
+              chapter: "3",
+              title: "Hosted Title",
+              pages: 15,
+              externalUrl: null
+            }
+          }
+        ]
+      };
+
+      const chapters = MangaDexMapper.mapChapters("test_id", externalFeed);
+      assert.equal(chapters.length, 3);
+
+      assert.equal(chapters[0]?.chapterNumber, 1);
+      assert.equal(chapters[0]?.pageCount, 0);
+      assert.equal(chapters[0]?.externalUrl, "https://www.webnovel.com/comic/123");
+      assert.equal(chapters[0]?.chapterType, "external");
+
+      assert.equal(chapters[1]?.chapterNumber, 2);
+      assert.equal(chapters[1]?.pageCount, 0);
+      assert.equal(chapters[1]?.externalUrl, null);
+      assert.equal(chapters[1]?.chapterType, "unavailable");
+
+      assert.equal(chapters[2]?.chapterNumber, 3);
+      assert.equal(chapters[2]?.pageCount, 15);
+      assert.equal(chapters[2]?.externalUrl, null);
+      assert.equal(chapters[2]?.chapterType, "hosted");
+    });
   });
 
   describe("3. Search & Discovery Mapping", () => {

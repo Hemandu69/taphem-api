@@ -143,11 +143,21 @@ export function validateAndNormalizeChapter(input: IngestChapterInput): IngestCh
     );
   }
 
-  if (!Number.isInteger(input.pageCount) || input.pageCount <= 0) {
+  if (!Number.isInteger(input.pageCount) || input.pageCount < 0) {
     throw AppError.badRequest(
-      `Invalid pageCount '${input.pageCount}'. Must be a positive integer >= 1.`,
+      `Invalid pageCount '${input.pageCount}'. Must be an integer >= 0.`,
       "INVALID_PAGE_COUNT"
     );
+  }
+
+  const externalUrl = input.externalUrl?.trim() || null;
+  let chapterType: "hosted" | "external" | "unavailable" = input.chapterType || "hosted";
+  if (input.pageCount > 0 && !externalUrl) {
+    chapterType = "hosted";
+  } else if (externalUrl) {
+    chapterType = "external";
+  } else if (input.pageCount === 0) {
+    chapterType = "unavailable";
   }
 
   return {
@@ -155,6 +165,9 @@ export function validateAndNormalizeChapter(input: IngestChapterInput): IngestCh
     source,
     sourceId,
     mangaSourceId,
+    pageCount: input.pageCount,
+    externalUrl,
+    chapterType,
     title: (input.title || `Chapter ${input.chapterNumber}`).trim()
   };
 }

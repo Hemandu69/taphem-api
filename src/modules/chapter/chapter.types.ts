@@ -7,6 +7,8 @@ export interface ChapterPage {
   imageUrl: string;
 }
 
+export type ChapterType = "hosted" | "external" | "unavailable";
+
 /**
  * Summary view of a chapter (omitting full page array for lightweight listings).
  */
@@ -19,6 +21,8 @@ export interface ChapterSummary {
   createdAt?: string;
   source?: string | null;
   sourceId?: string | null;
+  externalUrl?: string | null;
+  chapterType?: ChapterType;
 }
 
 /**
@@ -34,6 +38,8 @@ export interface Chapter {
   createdAt?: string;
   source?: string | null;
   sourceId?: string | null;
+  externalUrl?: string | null;
+  chapterType?: ChapterType;
 }
 
 /**

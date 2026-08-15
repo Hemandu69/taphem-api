@@ -2,7 +2,8 @@ import type {
   Chapter,
   ChapterPage,
   ChapterRepository,
-  ChapterSummary
+  ChapterSummary,
+  ChapterType
 } from "./chapter.types.js";
 import { query } from "../../infrastructure/database/pool.js";
 import {
@@ -20,6 +21,8 @@ interface ChapterSummaryDbRow {
   created_at: Date | string;
   source?: string | null;
   source_id?: string | null;
+  external_url?: string | null;
+  chapter_type?: ChapterType | null;
 }
 
 /**
@@ -51,7 +54,9 @@ export class DatabaseChapterRepository implements ChapterRepository {
         c.page_count,
         c.created_at,
         c.source,
-        c.source_id
+        c.source_id,
+        c.external_url,
+        c.chapter_type
       FROM chapters c
       JOIN mangas m ON m.id = c.manga_id
       WHERE LOWER(m.slug) = $1
@@ -61,19 +66,31 @@ export class DatabaseChapterRepository implements ChapterRepository {
     try {
       const result = await query<ChapterSummaryDbRow>(sql, [normalizedSlug]);
 
-      return result.rows.map((row) => ({
-        id: row.id,
-        mangaSlug: row.manga_slug,
-        chapterNumber: row.chapter_number,
-        title: row.title,
-        pageCount: row.page_count,
-        createdAt:
-          row.created_at instanceof Date
-            ? row.created_at.toISOString()
-            : String(row.created_at),
-        source: row.source || null,
-        sourceId: row.source_id || null
-      }));
+      return result.rows.map((row) => {
+        const extUrl = row.external_url || null;
+        let cType: ChapterType = row.chapter_type || "hosted";
+        if (extUrl) {
+          cType = "external";
+        } else if (row.page_count === 0) {
+          cType = "unavailable";
+        }
+
+        return {
+          id: row.id,
+          mangaSlug: row.manga_slug,
+          chapterNumber: row.chapter_number,
+          title: row.title,
+          pageCount: row.page_count,
+          createdAt:
+            row.created_at instanceof Date
+              ? row.created_at.toISOString()
+              : String(row.created_at),
+          source: row.source || null,
+          sourceId: row.source_id || null,
+          externalUrl: extUrl,
+          chapterType: cType
+        };
+      });
     } catch (error) {
       console.warn(
         "PostgreSQL query failed, falling back to static in-memory data:",
@@ -98,7 +115,9 @@ export class DatabaseChapterRepository implements ChapterRepository {
         c.page_count,
         c.created_at,
         c.source,
-        c.source_id
+        c.source_id,
+        c.external_url,
+        c.chapter_type
       FROM chapters c
       JOIN mangas m ON m.id = c.manga_id
       WHERE LOWER(m.slug) = $1 AND c.chapter_number = $2
@@ -120,21 +139,29 @@ export class DatabaseChapterRepository implements ChapterRepository {
         return null;
       }
 
-      // Generate deterministic pages directly from chapter page_count
-      const resolvedPages: ChapterPage[] = Array.from(
-        { length: chapterRow.page_count },
-        (_, idx) => {
-          const pageNumber = idx + 1;
-          return {
-            pageNumber,
-            imageUrl: this.storage.resolveChapterPageUrl(
-              chapterRow.manga_slug,
-              chapterRow.chapter_number,
-              pageNumber
-            )
-          };
-        }
-      );
+      const extUrl = chapterRow.external_url || null;
+      let cType: ChapterType = chapterRow.chapter_type || "hosted";
+      if (extUrl) {
+        cType = "external";
+      } else if (chapterRow.page_count === 0) {
+        cType = "unavailable";
+      }
+
+      // Generate deterministic pages directly from chapter page_count if hosted
+      const resolvedPages: ChapterPage[] =
+        cType === "hosted" && chapterRow.page_count > 0
+          ? Array.from({ length: chapterRow.page_count }, (_, idx) => {
+              const pageNumber = idx + 1;
+              return {
+                pageNumber,
+                imageUrl: this.storage.resolveChapterPageUrl(
+                  chapterRow.manga_slug,
+                  chapterRow.chapter_number,
+                  pageNumber
+                )
+              };
+            })
+          : [];
 
       return {
         id: chapterRow.id,
@@ -148,6 +175,8 @@ export class DatabaseChapterRepository implements ChapterRepository {
             : String(chapterRow.created_at),
         source: chapterRow.source || null,
         sourceId: chapterRow.source_id || null,
+        externalUrl: extUrl,
+        chapterType: cType,
         pages: resolvedPages
       };
     } catch (error) {

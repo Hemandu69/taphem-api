@@ -52,6 +52,7 @@ export interface MangaDexFeedResponse {
       chapter: string | null;
       title: string | null;
       pages: number;
+      externalUrl?: string | null;
       publishAt?: string;
     };
   }>;

@@ -92,8 +92,7 @@ export class ChapterService {
   /**
    * Retrieves a single page binary and MIME type for a chapter.
    * Validates manga, chapter, and page bounds.
-   * Checks cache first; on cache miss, retrieves on-demand from source (e.g. MangaDex @Home),
-   * persists to deterministic storage, and returns the binary image payload.
+   * Handles hosted vs external chapters appropriately.
    */
   public async getPage(
     slug: string,
@@ -149,7 +148,23 @@ export class ChapterService {
       );
     }
 
-    // 4. Validate page number boundary
+    // 4. Handle External and Unavailable chapter states
+    if (chapter.chapterType === "external" || chapter.externalUrl) {
+      throw AppError.externalChapter(
+        "This chapter is available through an external publisher and does not contain hosted page images.",
+        chapter.externalUrl || undefined
+      );
+    }
+
+    if (chapter.chapterType === "unavailable" || chapter.pageCount === 0) {
+      throw new AppError(
+        `Chapter ${parsedChapterNumber} is currently unavailable for online reading.`,
+        404,
+        "SOURCE_CHAPTER_UNAVAILABLE"
+      );
+    }
+
+    // 5. Validate page number boundary
     if (parsedPageNumber > chapter.pageCount) {
       throw AppError.badRequest(
         `Page ${parsedPageNumber} exceeds total chapter page count of ${chapter.pageCount}`,
@@ -157,7 +172,7 @@ export class ChapterService {
       );
     }
 
-    // 5. Check cache in deterministic storage
+    // 6. Check cache in deterministic storage
     const cachedPage = await this.storage.readPage(
       trimmedSlug,
       parsedChapterNumber,
@@ -168,12 +183,27 @@ export class ChapterService {
       return cachedPage;
     }
 
-    // 6. Cache miss: On-demand resolution from source
+    // 7. Cache miss: On-demand resolution from source
     if (chapter.source === "mangadex" && chapter.sourceId) {
       const atHome = await this.mangadexClient.getAtHomeServer(chapter.sourceId);
       if (!atHome || !atHome.chapter || !Array.isArray(atHome.chapter.data)) {
-        throw AppError.notFound(
+        throw new AppError(
           `Unable to resolve @Home server for chapter '${chapter.sourceId}'`,
+          502,
+          "SOURCE_CHAPTER_UNAVAILABLE"
+        );
+      }
+
+      if (atHome.chapter.data.length === 0) {
+        if (chapter.externalUrl) {
+          throw AppError.externalChapter(
+            "This chapter is available through an external publisher and does not contain hosted page images.",
+            chapter.externalUrl
+          );
+        }
+        throw new AppError(
+          "This chapter does not contain hosted pages on the source provider.",
+          404,
           "SOURCE_CHAPTER_UNAVAILABLE"
         );
       }
@@ -197,7 +227,7 @@ export class ChapterService {
         );
       }
 
-      // Persist to storage cache asynchronously (or await to ensure file is saved)
+      // Persist to storage cache
       await this.storage.writePage(
         trimmedSlug,
         parsedChapterNumber,
@@ -212,7 +242,7 @@ export class ChapterService {
       };
     }
 
-    // 7. Seed / static fallback image resolution
+    // 8. Seed / static fallback image resolution
     const fallbackPage = chapter.pages.find((p) => p.pageNumber === parsedPageNumber);
     if (fallbackPage && fallbackPage.imageUrl && fallbackPage.imageUrl.startsWith("http")) {
       const controller = new AbortController();

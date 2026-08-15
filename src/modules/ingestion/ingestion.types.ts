@@ -29,6 +29,8 @@ export interface IngestChapterInput {
   chapterNumber: number;
   title?: string;
   pageCount: number;
+  externalUrl?: string | null;
+  chapterType?: "hosted" | "external" | "unavailable";
 }
 
 /**

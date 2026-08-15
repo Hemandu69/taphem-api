@@ -201,13 +201,15 @@ export class DatabaseIngestionRepository implements IngestionRepository {
         await client.query(
           `
           INSERT INTO chapters (
-            id, manga_id, source, source_id, chapter_number, title, page_count, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+            id, manga_id, source, source_id, chapter_number, title, page_count, external_url, chapter_type, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
           ON CONFLICT (manga_id, chapter_number) DO UPDATE SET
             source = EXCLUDED.source,
             source_id = EXCLUDED.source_id,
             title = EXCLUDED.title,
             page_count = EXCLUDED.page_count,
+            external_url = EXCLUDED.external_url,
+            chapter_type = EXCLUDED.chapter_type,
             updated_at = NOW();
         `,
           [
@@ -217,7 +219,9 @@ export class DatabaseIngestionRepository implements IngestionRepository {
             chap.sourceId,
             chap.chapterNumber,
             chap.title || `Chapter ${chap.chapterNumber}`,
-            chap.pageCount
+            chap.pageCount,
+            chap.externalUrl || null,
+            chap.chapterType || (chap.externalUrl ? "external" : chap.pageCount > 0 ? "hosted" : "unavailable")
           ]
         );
       }
@@ -323,6 +327,12 @@ export class StaticIngestionRepository implements IngestionRepository {
       chaptersCount: chapterMap.size,
       genresCount: (mangaInput.genres || []).length
     };
+  }
+
+  public getChapters(mangaIdOrSlug: string): IngestChapterInput[] {
+    const existing = this.memoryManga.get(mangaIdOrSlug);
+    const mangaId = existing ? existing.id : mangaIdOrSlug;
+    return this.memoryChapters.get(mangaId) || [];
   }
 }
 

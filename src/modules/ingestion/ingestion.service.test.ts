@@ -101,7 +101,7 @@ describe("Catalog Ingestion Foundation", () => {
             sourceId: "c1",
             mangaSourceId: "m1",
             chapterNumber: 1,
-            pageCount: 0
+            pageCount: -1
           }),
         (err: unknown) => err instanceof AppError && err.code === "INVALID_PAGE_COUNT"
       );
@@ -143,6 +143,58 @@ describe("Catalog Ingestion Foundation", () => {
       const updated = await service.ingestFromAdapter(mockAdapter, "mock_manga_01");
       assert.equal(updated.action, "UPDATED");
       assert.equal(updated.title, "Neon Valkyrie");
+    });
+
+    it("should update chapter from hosted (pageCount=1) to external (pageCount=0, externalUrl) on re-sync", async () => {
+      // 1. Initial ingestion with old-style pageCount=1, no externalUrl
+      await service.ingestManga(
+        { source: "mangadex", sourceId: "32d76d19", slug: "na-honjaman-level-up", title: "Na Honjaman Level-Up" },
+        [
+          {
+            source: "mangadex",
+            sourceId: "de1757bd",
+            mangaSourceId: "32d76d19",
+            chapterNumber: 1,
+            title: "The Weakest Hunter",
+            pageCount: 1,
+            chapterType: "hosted"
+          }
+        ]
+      );
+
+      // Verify stored state before re-sync
+      const beforeChapters = staticRepo.getChapters("na-honjaman-level-up");
+      assert.equal(beforeChapters.length, 1);
+      assert.equal(beforeChapters[0]?.pageCount, 1);
+      assert.equal(beforeChapters[0]?.chapterType, "hosted");
+      assert.equal(beforeChapters[0]?.externalUrl, null);
+
+      // 2. Re-sync with new externalUrl and pageCount=0
+      await service.ingestManga(
+        { source: "mangadex", sourceId: "32d76d19", slug: "na-honjaman-level-up", title: "Na Honjaman Level-Up" },
+        [
+          {
+            source: "mangadex",
+            sourceId: "de1757bd",
+            mangaSourceId: "32d76d19",
+            chapterNumber: 1,
+            title: "The Weakest Hunter",
+            pageCount: 0,
+            externalUrl: "https://www.webnovel.com/comic/15227640605485101/45196190333068497",
+            chapterType: "external"
+          }
+        ]
+      );
+
+      // Verify stored state after re-sync
+      const afterChapters = staticRepo.getChapters("na-honjaman-level-up");
+      assert.equal(afterChapters.length, 1);
+      assert.equal(afterChapters[0]?.pageCount, 0);
+      assert.equal(afterChapters[0]?.chapterType, "external");
+      assert.equal(
+        afterChapters[0]?.externalUrl,
+        "https://www.webnovel.com/comic/15227640605485101/45196190333068497"
+      );
     });
 
     it("should reject payloads with duplicate chapter numbers", async () => {

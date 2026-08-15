@@ -12,6 +12,7 @@ export interface ApiResponse<T = unknown> {
 export interface ApiErrorDetail {
   code: string;
   message: string;
+  externalUrl?: string;
   details?: unknown;
 }
 
@@ -35,5 +36,6 @@ export type {
   Chapter,
   ChapterPage,
   ChapterSummary,
+  ChapterType,
   ChapterRepository
 } from "../modules/chapter/chapter.types.js";

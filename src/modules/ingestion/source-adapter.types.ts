@@ -28,6 +28,11 @@ export interface SourceMangaPayload {
 }
 
 /**
+ * Chapter availability type across sources.
+ */
+export type ChapterType = "hosted" | "external" | "unavailable";
+
+/**
  * Raw normalized chapter metadata emitted by an external source adapter.
  */
 export interface SourceChapterPayload {
@@ -36,6 +41,8 @@ export interface SourceChapterPayload {
   chapterNumber: number;
   title?: string;
   pageCount: number;
+  externalUrl?: string | null;
+  chapterType?: ChapterType;
 }
 
 /**

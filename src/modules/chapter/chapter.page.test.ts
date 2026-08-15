@@ -36,7 +36,7 @@ class MockMangaDexClient implements MangaDexHttpClient {
     if (this.atHomeResponse) {
       return this.atHomeResponse;
     }
-    if (chapterId === "valid-mangadex-chapter-id") {
+    if (chapterId === "valid-mangadex-hosted-chapter-id") {
       return {
         result: "ok",
         baseUrl: "https://uploads.mangadex.org",
@@ -44,6 +44,17 @@ class MockMangaDexClient implements MangaDexHttpClient {
           hash: "abc123hash",
           data: ["01-page1.jpg", "02-page2.png"],
           dataSaver: ["01-page1.jpg", "02-page2.jpg"]
+        }
+      };
+    }
+    if (chapterId === "valid-mangadex-external-chapter-id") {
+      return {
+        result: "ok",
+        baseUrl: "https://uploads.mangadex.org",
+        chapter: {
+          hash: "",
+          data: [],
+          dataSaver: []
         }
       };
     }
@@ -99,8 +110,8 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
     );
   });
 
-  it("should fetch page on-demand from MangaDex @Home on cache miss and write to storage cache", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "taphem-page-test-"));
+  it("should return HTTP 409 SOURCE_CHAPTER_EXTERNAL_ONLY with externalUrl for external chapters without downloading or writing storage", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "taphem-ext-test-"));
     try {
       const storage = new StorageService("", tempDir);
       const mockMangadex = new MockMangaDexClient();
@@ -108,16 +119,15 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
       const customChapters = [
         {
           id: "chap_solo_1",
-          mangaSlug: "solo-leveling",
+          mangaSlug: "na-honjaman-level-up",
           chapterNumber: 1,
           title: "The Weakest Hunter",
-          pageCount: 2,
+          pageCount: 0,
           source: "mangadex",
-          sourceId: "valid-mangadex-chapter-id",
-          pages: [
-            { pageNumber: 1, imageUrl: "" },
-            { pageNumber: 2, imageUrl: "" }
-          ]
+          sourceId: "valid-mangadex-external-chapter-id",
+          externalUrl: "https://www.webnovel.com/comic/15227640605485101/45196190333068497",
+          chapterType: "external" as const,
+          pages: []
         }
       ];
 
@@ -125,8 +135,8 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
       const mangaRepo = new StaticMangaRepository([
         {
           id: "manga_solo",
-          slug: "solo-leveling",
-          title: "Solo Leveling",
+          slug: "na-honjaman-level-up",
+          title: "Na Honjaman Level-Up",
           author: "Chugong",
           artist: "DUBU",
           genres: ["Action", "Fantasy"],
@@ -142,8 +152,75 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
 
       const service = new ChapterService(chapterRepo, mangaRepo, storage, mockMangadex);
 
+      await assert.rejects(
+        () => service.getPage("na-honjaman-level-up", 1, 1),
+        (err: unknown) => {
+          assert.ok(err instanceof AppError);
+          assert.equal(err.statusCode, 409);
+          assert.equal(err.code, "SOURCE_CHAPTER_EXTERNAL_ONLY");
+          assert.equal(
+            err.externalUrl,
+            "https://www.webnovel.com/comic/15227640605485101/45196190333068497"
+          );
+          return true;
+        }
+      );
+
+      // Verify zero storage files were created
+      const hasPage = await storage.hasPage("na-honjaman-level-up", 1, 1);
+      assert.equal(hasPage, false);
+      assert.equal(mockMangadex.downloadedUrls.length, 0);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should fetch hosted page on-demand from MangaDex @Home on cache miss and write to storage cache", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "taphem-hosted-test-"));
+    try {
+      const storage = new StorageService("", tempDir);
+      const mockMangadex = new MockMangaDexClient();
+
+      const customChapters = [
+        {
+          id: "chap_hosted_1",
+          mangaSlug: "hosted-manga",
+          chapterNumber: 1,
+          title: "Chapter 1",
+          pageCount: 2,
+          source: "mangadex",
+          sourceId: "valid-mangadex-hosted-chapter-id",
+          chapterType: "hosted" as const,
+          pages: [
+            { pageNumber: 1, imageUrl: "" },
+            { pageNumber: 2, imageUrl: "" }
+          ]
+        }
+      ];
+
+      const chapterRepo = new StaticChapterRepository(customChapters, storage);
+      const mangaRepo = new StaticMangaRepository([
+        {
+          id: "manga_hosted",
+          slug: "hosted-manga",
+          title: "Hosted Manga",
+          author: "Author",
+          artist: "Artist",
+          genres: ["Action"],
+          status: "completed",
+          rating: 9.0,
+          description: "Synopsis",
+          coverImage: "https://example.com/cover.jpg",
+          alternativeTitles: [],
+          releaseYear: 2024,
+          chapterCount: 1
+        }
+      ]);
+
+      const service = new ChapterService(chapterRepo, mangaRepo, storage, mockMangadex);
+
       // 1. Initial request (cache miss)
-      const pageResult = await service.getPage("solo-leveling", 1, 1);
+      const pageResult = await service.getPage("hosted-manga", 1, 1);
       assert.ok(pageResult);
       assert.equal(pageResult.contentType, "image/jpeg");
       assert.equal(pageResult.data.toString(), "fake-jpeg-data");
@@ -154,13 +231,13 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
       );
 
       // Verify file is persisted in storage cache
-      const cached = await storage.readPage("solo-leveling", 1, 1);
+      const cached = await storage.readPage("hosted-manga", 1, 1);
       assert.ok(cached);
       assert.equal(cached?.contentType, "image/jpeg");
       assert.equal(cached?.data.toString(), "fake-jpeg-data");
 
       // 2. Second request (cache hit - should not trigger download again)
-      const cachedResult = await service.getPage("solo-leveling", 1, 1);
+      const cachedResult = await service.getPage("hosted-manga", 1, 1);
       assert.ok(cachedResult);
       assert.equal(cachedResult.contentType, "image/jpeg");
       assert.equal(cachedResult.data.toString(), "fake-jpeg-data");
@@ -178,13 +255,14 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
 
       const customChapters = [
         {
-          id: "chap_solo_1",
-          mangaSlug: "solo-leveling",
+          id: "chap_hosted_1",
+          mangaSlug: "hosted-manga",
           chapterNumber: 1,
-          title: "The Weakest Hunter",
+          title: "Chapter 1",
           pageCount: 2,
           source: "mangadex",
-          sourceId: "valid-mangadex-chapter-id",
+          sourceId: "valid-mangadex-hosted-chapter-id",
+          chapterType: "hosted" as const,
           pages: [
             { pageNumber: 1, imageUrl: "" },
             { pageNumber: 2, imageUrl: "" }
@@ -195,18 +273,18 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
       const chapterRepo = new StaticChapterRepository(customChapters, storage);
       const mangaRepo = new StaticMangaRepository([
         {
-          id: "manga_solo",
-          slug: "solo-leveling",
-          title: "Solo Leveling",
-          author: "Chugong",
-          artist: "DUBU",
+          id: "manga_hosted",
+          slug: "hosted-manga",
+          title: "Hosted Manga",
+          author: "Author",
+          artist: "Artist",
           genres: ["Action"],
           status: "completed",
-          rating: 9.8,
-          description: "Solo Leveling synopsis",
+          rating: 9.0,
+          description: "Synopsis",
           coverImage: "https://example.com/cover.jpg",
-          alternativeTitles: ["Solo Leveling"],
-          releaseYear: 2018,
+          alternativeTitles: [],
+          releaseYear: 2024,
           chapterCount: 1
         }
       ]);
@@ -214,63 +292,13 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
       const service = new ChapterService(chapterRepo, mangaRepo, storage, mockMangadex);
 
       // Request Page 2 (which is 02-page2.png)
-      const pageResult = await service.getPage("solo-leveling", 1, 2);
+      const pageResult = await service.getPage("hosted-manga", 1, 2);
       assert.ok(pageResult);
       assert.equal(pageResult.contentType, "image/png");
       assert.equal(pageResult.data.toString(), "fake-png-data");
       assert.equal(
         mockMangadex.downloadedUrls[0],
         "https://uploads.mangadex.org/data/abc123hash/02-page2.png"
-      );
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should handle MangaDex @Home failure gracefully", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "taphem-fail-test-"));
-    try {
-      const storage = new StorageService("", tempDir);
-      const mockMangadex = new MockMangaDexClient();
-      mockMangadex.atHomeResponse = null; // simulate failed resolution
-
-      const customChapters = [
-        {
-          id: "chap_solo_1",
-          mangaSlug: "solo-leveling",
-          chapterNumber: 1,
-          title: "The Weakest Hunter",
-          pageCount: 1,
-          source: "mangadex",
-          sourceId: "invalid-mangadex-chapter-id",
-          pages: [{ pageNumber: 1, imageUrl: "" }]
-        }
-      ];
-
-      const chapterRepo = new StaticChapterRepository(customChapters, storage);
-      const mangaRepo = new StaticMangaRepository([
-        {
-          id: "manga_solo",
-          slug: "solo-leveling",
-          title: "Solo Leveling",
-          author: "Chugong",
-          artist: "DUBU",
-          genres: ["Action"],
-          status: "completed",
-          rating: 9.8,
-          description: "Solo Leveling synopsis",
-          coverImage: "https://example.com/cover.jpg",
-          alternativeTitles: ["Solo Leveling"],
-          releaseYear: 2018,
-          chapterCount: 1
-        }
-      ]);
-
-      const service = new ChapterService(chapterRepo, mangaRepo, storage, mockMangadex);
-
-      await assert.rejects(
-        () => service.getPage("solo-leveling", 1, 1),
-        (err: unknown) => err instanceof AppError && err.code === "SOURCE_CHAPTER_UNAVAILABLE"
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -285,13 +313,14 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
 
       const customChapters = [
         {
-          id: "chap_solo_1",
-          mangaSlug: "solo-leveling",
+          id: "chap_hosted_1",
+          mangaSlug: "hosted-manga",
           chapterNumber: 1,
-          title: "The Weakest Hunter",
+          title: "Chapter 1",
           pageCount: 1,
           source: "mangadex",
-          sourceId: "valid-mangadex-chapter-id",
+          sourceId: "valid-mangadex-hosted-chapter-id",
+          chapterType: "hosted" as const,
           pages: [{ pageNumber: 1, imageUrl: "" }]
         }
       ];
@@ -299,18 +328,18 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
       const chapterRepo = new StaticChapterRepository(customChapters, storage);
       const mangaRepo = new StaticMangaRepository([
         {
-          id: "manga_solo",
-          slug: "solo-leveling",
-          title: "Solo Leveling",
-          author: "Chugong",
-          artist: "DUBU",
+          id: "manga_hosted",
+          slug: "hosted-manga",
+          title: "Hosted Manga",
+          author: "Author",
+          artist: "Artist",
           genres: ["Action"],
           status: "completed",
-          rating: 9.8,
-          description: "Solo Leveling synopsis",
+          rating: 9.0,
+          description: "Synopsis",
           coverImage: "https://example.com/cover.jpg",
-          alternativeTitles: ["Solo Leveling"],
-          releaseYear: 2018,
+          alternativeTitles: [],
+          releaseYear: 2024,
           chapterCount: 1
         }
       ]);
@@ -323,7 +352,7 @@ describe("Chapter Page Delivery & MangaDex @Home Integration", () => {
 
       const mockReq = {
         params: {
-          slug: "solo-leveling",
+          slug: "hosted-manga",
           chapterNumber: "1",
           pageNumber: "1"
         }

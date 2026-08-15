@@ -36,7 +36,7 @@ export class StaticChapterRepository implements ChapterRepository {
 
     return this.chapters
       .filter((chap) => chap.mangaSlug.toLowerCase() === normalizedSlug)
-      .map(({ id, mangaSlug: slug, chapterNumber, title, pageCount, createdAt, source, sourceId }) => ({
+      .map(({ id, mangaSlug: slug, chapterNumber, title, pageCount, createdAt, source, sourceId, externalUrl, chapterType }) => ({
         id,
         mangaSlug: slug,
         chapterNumber,
@@ -44,7 +44,9 @@ export class StaticChapterRepository implements ChapterRepository {
         pageCount,
         ...(createdAt ? { createdAt } : {}),
         source: source || null,
-        sourceId: sourceId || null
+        sourceId: sourceId || null,
+        externalUrl: externalUrl || null,
+        chapterType: chapterType || (externalUrl ? "external" : pageCount > 0 ? "hosted" : "unavailable")
       }))
       .sort((a, b) => a.chapterNumber - b.chapterNumber);
   }
@@ -69,23 +71,31 @@ export class StaticChapterRepository implements ChapterRepository {
       return null;
     }
 
+    const extUrl = chapter.externalUrl || null;
+    const cType = chapter.chapterType || (extUrl ? "external" : chapter.pageCount > 0 ? "hosted" : "unavailable");
+
     // Ensure pages are strictly ordered by pageNumber ascending and URLs are resolved via storage abstraction
     const sortedPages = [...chapter.pages].sort(
       (a, b) => a.pageNumber - b.pageNumber
     );
 
-    const resolvedPages: ChapterPage[] = sortedPages.map((page) => ({
-      pageNumber: page.pageNumber,
-      imageUrl: this.storage.resolveChapterPageUrl(
-        chapter.mangaSlug,
-        chapter.chapterNumber,
-        page.pageNumber,
-        page.imageUrl
-      )
-    }));
+    const resolvedPages: ChapterPage[] =
+      cType === "hosted"
+        ? sortedPages.map((page) => ({
+            pageNumber: page.pageNumber,
+            imageUrl: this.storage.resolveChapterPageUrl(
+              chapter.mangaSlug,
+              chapter.chapterNumber,
+              page.pageNumber,
+              page.imageUrl
+            )
+          }))
+        : [];
 
     return {
       ...chapter,
+      externalUrl: extUrl,
+      chapterType: cType,
       pages: resolvedPages
     };
   }

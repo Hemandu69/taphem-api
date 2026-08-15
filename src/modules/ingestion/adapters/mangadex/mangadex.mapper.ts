@@ -202,20 +202,41 @@ export class MangaDexMapper {
         continue;
       }
 
-      const pageCount = item.attributes.pages > 0 ? item.attributes.pages : 1;
+      const rawPages =
+        typeof item.attributes.pages === "number" ? Math.max(0, item.attributes.pages) : 0;
+      const externalUrl = item.attributes.externalUrl?.trim() || null;
+
+      let chapterType: "hosted" | "external" | "unavailable" = "hosted";
+      if (rawPages > 0 && !externalUrl) {
+        chapterType = "hosted";
+      } else if (externalUrl) {
+        chapterType = "external";
+      } else {
+        chapterType = "unavailable";
+      }
+
+      const pageCount = chapterType === "hosted" ? rawPages : 0;
       const title = item.attributes.title
         ? item.attributes.title.trim()
         : `Chapter ${parsedNum}`;
 
-      // Deduplicate: If multiple groups uploaded chapter N, keep the one with more pages or first seen
+      // Deduplicate: If multiple groups uploaded chapter N:
+      // Prefer hosted over external/unavailable; then prefer more pages
       const existing = chapterMap.get(parsedNum);
-      if (!existing || pageCount > existing.pageCount) {
+      const isBetter =
+        !existing ||
+        (chapterType === "hosted" && existing.chapterType !== "hosted") ||
+        (chapterType === existing.chapterType && pageCount > existing.pageCount);
+
+      if (isBetter) {
         chapterMap.set(parsedNum, {
           sourceId: item.id,
           mangaSourceId: mangaId,
           chapterNumber: parsedNum,
           title,
-          pageCount
+          pageCount,
+          externalUrl,
+          chapterType
         });
       }
     }
