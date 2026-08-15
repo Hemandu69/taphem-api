@@ -36,13 +36,15 @@ export class StaticChapterRepository implements ChapterRepository {
 
     return this.chapters
       .filter((chap) => chap.mangaSlug.toLowerCase() === normalizedSlug)
-      .map(({ id, mangaSlug: slug, chapterNumber, title, pageCount, createdAt }) => ({
+      .map(({ id, mangaSlug: slug, chapterNumber, title, pageCount, createdAt, source, sourceId }) => ({
         id,
         mangaSlug: slug,
         chapterNumber,
         title,
         pageCount,
-        ...(createdAt ? { createdAt } : {})
+        ...(createdAt ? { createdAt } : {}),
+        source: source || null,
+        sourceId: sourceId || null
       }))
       .sort((a, b) => a.chapterNumber - b.chapterNumber);
   }

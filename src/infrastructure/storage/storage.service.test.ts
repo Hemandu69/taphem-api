@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 import { StorageService } from "./storage.service.js";
 import { AppError } from "../../utils/errors.js";
 
@@ -45,10 +48,10 @@ describe("StorageService Asset URL & Path Generation", () => {
     assert.equal(url, fallback);
   });
 
-  it("should return root-relative path when CDN base URL is empty and no fallback is provided", () => {
+  it("should return API delivery endpoint when CDN base URL is empty and no fallback is provided", () => {
     const storage = new StorageService("");
     const url = storage.resolveChapterPageUrl("neon-valkyrie", 1, 1);
-    assert.equal(url, "/manga/neon-valkyrie/chapters/1/001.webp");
+    assert.equal(url, "/api/v1/manga/neon-valkyrie/chapters/1/pages/1");
   });
 
   it("should reject malicious path traversal in manga slug", () => {
@@ -100,5 +103,41 @@ describe("StorageService Asset URL & Path Generation", () => {
       (err: unknown) =>
         err instanceof AppError && err.code === "INVALID_PAGENUMBER"
     );
+  });
+
+  it("should write, read, and check existence of binary page assets", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "taphem-storage-test-"));
+    try {
+      const storage = new StorageService("", tempDir);
+      const testBuffer = Buffer.from("fake-jpeg-binary-data");
+
+      // Verify page does not exist initially
+      const initialHas = await storage.hasPage("solo-leveling", 1, 1);
+      assert.equal(initialHas, false);
+      const initialRead = await storage.readPage("solo-leveling", 1, 1);
+      assert.equal(initialRead, null);
+
+      // Write page with JPEG content type
+      const savedPath = await storage.writePage(
+        "solo-leveling",
+        1,
+        1,
+        testBuffer,
+        "image/jpeg"
+      );
+      assert.equal(savedPath, "manga/solo-leveling/chapters/1/001.jpg");
+
+      // Verify page exists
+      const afterHas = await storage.hasPage("solo-leveling", 1, 1);
+      assert.equal(afterHas, true);
+
+      // Read page and verify content
+      const readResult = await storage.readPage("solo-leveling", 1, 1);
+      assert.ok(readResult);
+      assert.equal(readResult?.contentType, "image/jpeg");
+      assert.equal(readResult?.data.toString(), "fake-jpeg-binary-data");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

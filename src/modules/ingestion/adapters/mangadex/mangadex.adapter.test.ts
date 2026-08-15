@@ -185,6 +185,14 @@ class MockMangaDexHttpClient implements MangaDexHttpClient {
     this.lastSearchParams = params;
     return this.searchToReturn;
   }
+
+  public async getAtHomeServer(_chapterId: string) {
+    return null;
+  }
+
+  public async downloadChapterPage(_pageUrl: string) {
+    return null;
+  }
 }
 
 describe("MangaDex Real Source Adapter & Discovery", () => {

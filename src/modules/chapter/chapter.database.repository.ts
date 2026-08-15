@@ -18,6 +18,8 @@ interface ChapterSummaryDbRow {
   title: string;
   page_count: number;
   created_at: Date | string;
+  source?: string | null;
+  source_id?: string | null;
 }
 
 /**
@@ -47,7 +49,9 @@ export class DatabaseChapterRepository implements ChapterRepository {
         c.chapter_number,
         c.title,
         c.page_count,
-        c.created_at
+        c.created_at,
+        c.source,
+        c.source_id
       FROM chapters c
       JOIN mangas m ON m.id = c.manga_id
       WHERE LOWER(m.slug) = $1
@@ -66,7 +70,9 @@ export class DatabaseChapterRepository implements ChapterRepository {
         createdAt:
           row.created_at instanceof Date
             ? row.created_at.toISOString()
-            : String(row.created_at)
+            : String(row.created_at),
+        source: row.source || null,
+        sourceId: row.source_id || null
       }));
     } catch (error) {
       console.warn(
@@ -90,7 +96,9 @@ export class DatabaseChapterRepository implements ChapterRepository {
         c.chapter_number,
         c.title,
         c.page_count,
-        c.created_at
+        c.created_at,
+        c.source,
+        c.source_id
       FROM chapters c
       JOIN mangas m ON m.id = c.manga_id
       WHERE LOWER(m.slug) = $1 AND c.chapter_number = $2
@@ -138,6 +146,8 @@ export class DatabaseChapterRepository implements ChapterRepository {
           chapterRow.created_at instanceof Date
             ? chapterRow.created_at.toISOString()
             : String(chapterRow.created_at),
+        source: chapterRow.source || null,
+        sourceId: chapterRow.source_id || null,
         pages: resolvedPages
       };
     } catch (error) {

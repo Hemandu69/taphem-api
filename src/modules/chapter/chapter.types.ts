@@ -17,6 +17,8 @@ export interface ChapterSummary {
   title: string;
   pageCount: number;
   createdAt?: string;
+  source?: string | null;
+  sourceId?: string | null;
 }
 
 /**
@@ -30,6 +32,8 @@ export interface Chapter {
   pageCount: number;
   pages: ChapterPage[];
   createdAt?: string;
+  source?: string | null;
+  sourceId?: string | null;
 }
 
 /**

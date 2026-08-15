@@ -6,15 +6,19 @@ import type {
 import { chapterRepository } from "./chapter.repository.js";
 import { mangaRepository } from "../manga/manga.repository.js";
 import type { MangaRepository } from "../manga/manga.types.js";
+import { storageService, type MangaStorageService } from "../../infrastructure/storage/index.js";
+import { MangaDexClient, type MangaDexHttpClient } from "../ingestion/adapters/mangadex/mangadex.client.js";
 import { AppError } from "../../utils/errors.js";
 
 /**
- * Service managing Manga Chapter business logic, validation, and domain rules.
+ * Service managing Manga Chapter business logic, validation, on-demand page resolution, and domain rules.
  */
 export class ChapterService {
   constructor(
     private readonly chapterRepo: ChapterRepository = chapterRepository,
-    private readonly mangaRepo: MangaRepository = mangaRepository
+    private readonly mangaRepo: MangaRepository = mangaRepository,
+    private readonly storage: MangaStorageService = storageService,
+    private readonly mangadexClient: MangaDexHttpClient = new MangaDexClient()
   ) {}
 
   /**
@@ -83,6 +87,164 @@ export class ChapterService {
     }
 
     return chapter;
+  }
+
+  /**
+   * Retrieves a single page binary and MIME type for a chapter.
+   * Validates manga, chapter, and page bounds.
+   * Checks cache first; on cache miss, retrieves on-demand from source (e.g. MangaDex @Home),
+   * persists to deterministic storage, and returns the binary image payload.
+   */
+  public async getPage(
+    slug: string,
+    chapterNumberParam: string | number,
+    pageNumberParam: string | number
+  ): Promise<{ data: Buffer; contentType: string }> {
+    const trimmedSlug = slug?.trim();
+    if (!trimmedSlug) {
+      throw AppError.badRequest("Manga slug parameter is required", "INVALID_SLUG");
+    }
+
+    // 1. Validate chapter and page numbers
+    const parsedChapterNumber = Number(chapterNumberParam);
+    if (
+      isNaN(parsedChapterNumber) ||
+      !Number.isInteger(parsedChapterNumber) ||
+      parsedChapterNumber <= 0
+    ) {
+      throw AppError.badRequest(
+        `Invalid chapter number '${chapterNumberParam}'. Chapter number must be a positive integer.`,
+        "INVALID_CHAPTER_NUMBER"
+      );
+    }
+
+    const parsedPageNumber = Number(pageNumberParam);
+    if (
+      isNaN(parsedPageNumber) ||
+      !Number.isInteger(parsedPageNumber) ||
+      parsedPageNumber <= 0
+    ) {
+      throw AppError.badRequest(
+        `Invalid page number '${pageNumberParam}'. Page number must be a positive integer.`,
+        "INVALID_PAGE_NUMBER"
+      );
+    }
+
+    // 2. Verify manga exists
+    const manga = await this.mangaRepo.findBySlug(trimmedSlug);
+    if (!manga) {
+      throw AppError.notFound(`Manga '${trimmedSlug}' was not found`, "MANGA_NOT_FOUND");
+    }
+
+    // 3. Verify chapter exists and belongs to manga
+    const chapter = await this.chapterRepo.findByMangaSlugAndChapterNumber(
+      trimmedSlug,
+      parsedChapterNumber
+    );
+
+    if (!chapter) {
+      throw AppError.notFound(
+        `Chapter ${parsedChapterNumber} for manga '${trimmedSlug}' was not found`,
+        "CHAPTER_NOT_FOUND"
+      );
+    }
+
+    // 4. Validate page number boundary
+    if (parsedPageNumber > chapter.pageCount) {
+      throw AppError.badRequest(
+        `Page ${parsedPageNumber} exceeds total chapter page count of ${chapter.pageCount}`,
+        "PAGE_OUT_OF_BOUNDS"
+      );
+    }
+
+    // 5. Check cache in deterministic storage
+    const cachedPage = await this.storage.readPage(
+      trimmedSlug,
+      parsedChapterNumber,
+      parsedPageNumber
+    );
+
+    if (cachedPage) {
+      return cachedPage;
+    }
+
+    // 6. Cache miss: On-demand resolution from source
+    if (chapter.source === "mangadex" && chapter.sourceId) {
+      const atHome = await this.mangadexClient.getAtHomeServer(chapter.sourceId);
+      if (!atHome || !atHome.chapter || !Array.isArray(atHome.chapter.data)) {
+        throw AppError.notFound(
+          `Unable to resolve @Home server for chapter '${chapter.sourceId}'`,
+          "SOURCE_CHAPTER_UNAVAILABLE"
+        );
+      }
+
+      const pageIndex = parsedPageNumber - 1;
+      const filename = atHome.chapter.data[pageIndex];
+      if (!filename) {
+        throw AppError.notFound(
+          `Page ${parsedPageNumber} was not found on source chapter feed`,
+          "PAGE_NOT_FOUND"
+        );
+      }
+
+      const pageUrl = `${atHome.baseUrl}/data/${atHome.chapter.hash}/${filename}`;
+      const downloaded = await this.mangadexClient.downloadChapterPage(pageUrl);
+
+      if (!downloaded) {
+        throw AppError.notFound(
+          `Page image for chapter ${parsedChapterNumber} page ${parsedPageNumber} was not found`,
+          "PAGE_IMAGE_NOT_FOUND"
+        );
+      }
+
+      // Persist to storage cache asynchronously (or await to ensure file is saved)
+      await this.storage.writePage(
+        trimmedSlug,
+        parsedChapterNumber,
+        parsedPageNumber,
+        downloaded.buffer,
+        downloaded.contentType
+      );
+
+      return {
+        data: downloaded.buffer,
+        contentType: downloaded.contentType
+      };
+    }
+
+    // 7. Seed / static fallback image resolution
+    const fallbackPage = chapter.pages.find((p) => p.pageNumber === parsedPageNumber);
+    if (fallbackPage && fallbackPage.imageUrl && fallbackPage.imageUrl.startsWith("http")) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(fallbackPage.imageUrl, { signal: controller.signal });
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const contentType = response.headers.get("content-type") || "image/jpeg";
+
+          await this.storage.writePage(
+            trimmedSlug,
+            parsedChapterNumber,
+            parsedPageNumber,
+            buffer,
+            contentType
+          );
+
+          return { data: buffer, contentType };
+        }
+      } catch {
+        // Fallback fetch failed
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    throw AppError.notFound(
+      `Page ${parsedPageNumber} for chapter ${parsedChapterNumber} could not be resolved`,
+      "PAGE_NOT_FOUND"
+    );
   }
 }
 

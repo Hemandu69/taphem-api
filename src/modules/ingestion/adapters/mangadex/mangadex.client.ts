@@ -71,6 +71,20 @@ export interface MangaDexSearchResponse {
   errors?: Array<{ id: string; status: number; title: string; detail: string }>;
 }
 
+/**
+ * Raw MangaDex @Home server response shape for chapter pages.
+ */
+export interface MangaDexAtHomeResponse {
+  result: "ok" | "error";
+  baseUrl: string;
+  chapter: {
+    hash: string;
+    data: string[];
+    dataSaver: string[];
+  };
+  errors?: Array<{ id: string; status: number; title: string; detail: string }>;
+}
+
 export interface MangaDexHttpClient {
   getManga(mangaId: string): Promise<MangaDexMangaResponse | null>;
   getChapterFeed(mangaId: string): Promise<MangaDexFeedResponse>;
@@ -79,6 +93,8 @@ export interface MangaDexHttpClient {
     limit?: number;
     offset?: number;
   }): Promise<MangaDexSearchResponse>;
+  getAtHomeServer(chapterId: string): Promise<MangaDexAtHomeResponse | null>;
+  downloadChapterPage(pageUrl: string): Promise<{ buffer: Buffer; contentType: string } | null>;
 }
 
 /**
@@ -190,5 +206,72 @@ export class MangaDexClient implements MangaDexHttpClient {
     const endpoint = `/manga?${queryParts.join("&")}`;
     const res = await this.request<MangaDexSearchResponse>(endpoint);
     return res || { result: "ok", data: [], limit, offset, total: 0 };
+  }
+
+  public async getAtHomeServer(chapterId: string): Promise<MangaDexAtHomeResponse | null> {
+    const endpoint = `/at-home/server/${encodeURIComponent(chapterId)}`;
+    return this.request<MangaDexAtHomeResponse>(endpoint);
+  }
+
+  public async downloadChapterPage(pageUrl: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await fetch(pageUrl, {
+        method: "GET",
+        headers: {
+          Accept: "image/*",
+          "User-Agent": "Taphem-API/1.0.0 (https://api-beta.hemandu.com)"
+        },
+        signal: controller.signal
+      });
+
+      if (response.status === 404) {
+        return null;
+      }
+
+      if (response.status === 429) {
+        throw new AppError(
+          "MangaDex image CDN rate limit reached. Please try again later.",
+          429,
+          "SOURCE_RATE_LIMIT"
+        );
+      }
+
+      if (!response.ok) {
+        throw new AppError(
+          `MangaDex image CDN responded with status ${response.status}: ${response.statusText}`,
+          response.status >= 500 ? 502 : response.status,
+          "SOURCE_IMAGE_DOWNLOAD_ERROR"
+        );
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get("content-type") || "image/jpeg";
+
+      return { buffer, contentType };
+    } catch (error: unknown) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new AppError(
+          `MangaDex image download timed out after ${this.timeoutMs}ms`,
+          504,
+          "SOURCE_TIMEOUT"
+        );
+      }
+
+      throw new AppError(
+        `Failed to download chapter page from MangaDex: ${error instanceof Error ? error.message : String(error)}`,
+        502,
+        "SOURCE_IMAGE_DOWNLOAD_ERROR"
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
