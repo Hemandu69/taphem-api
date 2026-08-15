@@ -2,6 +2,8 @@ import cors, { type CorsOptions } from "cors";
 import { config } from "../config/index.js";
 import { AppError } from "../utils/errors.js";
 
+type CorsOriginCallback = (err: Error | null, allow?: boolean) => void;
+
 /**
  * Generates CORS options based on validated environment configuration.
  * Multi-origin support without hardcoding origins in source code.
@@ -10,7 +12,7 @@ export function createCorsMiddleware() {
   const allowedOrigins = config.corsOrigins;
 
   const corsOptions: CorsOptions = {
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: CorsOriginCallback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server, health monitors)
       if (!origin) {
         return callback(null, true);

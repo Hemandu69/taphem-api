@@ -1,3 +1,7 @@
+interface V8ErrorConstructor {
+  captureStackTrace(targetObject: object, constructorOpt?: unknown): void;
+}
+
 /**
  * Custom application error class representing operational and HTTP errors.
  */
@@ -22,7 +26,10 @@ export class AppError extends Error {
 
     // Restore prototype chain
     Object.setPrototypeOf(this, new.target.prototype);
-    Error.captureStackTrace(this, this.constructor);
+
+    if ("captureStackTrace" in Error) {
+      (Error as unknown as V8ErrorConstructor).captureStackTrace(this, this.constructor);
+    }
   }
 
   public static badRequest(message: string, code = "BAD_REQUEST", details?: unknown): AppError {

@@ -38,28 +38,32 @@ const envSchema = z.object({
  * Exits the process cleanly with detailed diagnostics if validation fails.
  */
 export function validateEnv() {
-  const result = envSchema.safeParse(process.env);
+  try {
+    const env = envSchema.parse(process.env);
 
-  if (!result.success) {
-    const errorDetails = result.error.issues
-      .map((issue) => ` - [${issue.path.join(".") || "GLOBAL"}]: ${issue.message}`)
-      .join("\n");
+    return {
+      nodeEnv: env.NODE_ENV,
+      port: env.PORT,
+      corsOrigins: env.CORS_ORIGINS,
+      isProduction: env.NODE_ENV === "production",
+      isDevelopment: env.NODE_ENV === "development",
+      isTest: env.NODE_ENV === "test"
+    };
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      const errorDetails = error.issues
+        .map((issue) => ` - [${issue.path.join(".") || "GLOBAL"}]: ${issue.message}`)
+        .join("\n");
 
-    console.error("==================================================");
-    console.error("FATAL: Environment configuration validation failed:");
-    console.error(errorDetails);
-    console.error("==================================================");
+      console.error("==================================================");
+      console.error("FATAL: Environment configuration validation failed:");
+      console.error(errorDetails);
+      console.error("==================================================");
+    } else {
+      console.error("FATAL: Unexpected error validating environment:", error);
+    }
     process.exit(1);
   }
-
-  return {
-    nodeEnv: result.data.NODE_ENV,
-    port: result.data.PORT,
-    corsOrigins: result.data.CORS_ORIGINS,
-    isProduction: result.data.NODE_ENV === "production",
-    isDevelopment: result.data.NODE_ENV === "development",
-    isTest: result.data.NODE_ENV === "test"
-  };
 }
 
 export type EnvConfig = ReturnType<typeof validateEnv>;
